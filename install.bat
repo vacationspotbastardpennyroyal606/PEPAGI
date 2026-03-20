@@ -1,14 +1,15 @@
 @echo off
-chcp 65001 >nul
-title PEPAGI — Instalace
+setlocal disabledelayedexpansion
+chcp 65001 >nul 2>nul
+title PEPAGI - Instalace
 
 echo.
-echo  ╔══════════════════════════════════════╗
-echo  ║       PEPAGI — Instalace          ║
-echo  ╚══════════════════════════════════════╝
+echo  ======================================
+echo         PEPAGI - Instalace
+echo  ======================================
 echo.
 
-:: ─── Check Node.js ───────────────────────────────────────────
+:: --- Check Node.js ---
 
 where node >nul 2>&1
 if %errorlevel% neq 0 (
@@ -20,7 +21,6 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-for /f "tokens=1 delims=v" %%v in ('node -v 2^>^&1') do set NODE_VER=%%v
 echo  OK: Node.js nalezen
 
 where npm >nul 2>&1
@@ -31,11 +31,11 @@ if %errorlevel% neq 0 (
 )
 echo  OK: npm nalezen
 
-:: ─── Install dependencies ─────────────────────────────────────
+:: --- Install dependencies ---
 
 echo.
 echo  Instaluji zavislosti...
-call npm install
+call npm install 2>nul
 if %errorlevel% neq 0 (
     echo  CHYBA: npm install selhal!
     pause
@@ -43,39 +43,43 @@ if %errorlevel% neq 0 (
 )
 echo  OK: Zavislosti nainstalovany
 
-:: ─── Register pepagi command globally ──────────────────────────
+:: --- Register pepagi command globally ---
 
 echo.
 echo  Registruji prikaz 'pepagi' globalne...
-call npm link
+call npm link 2>nul
 if %errorlevel% equ 0 (
     echo  OK: Prikaz 'pepagi' je nyni dostupny globalne
 ) else (
-    echo  UPOZORNENI: npm link selhal. Spust rucne: npm link
+    echo  UPOZORNENI: npm link selhal. Spust jako Administrator nebo rucne: npm link
 )
 
-:: ─── Create data directories ──────────────────────────────────
+:: --- Create data directories ---
 
-if not exist "%USERPROFILE%\.pepagi\memory" mkdir "%USERPROFILE%\.pepagi\memory"
-if not exist "%USERPROFILE%\.pepagi\logs" mkdir "%USERPROFILE%\.pepagi\logs"
-if not exist "%USERPROFILE%\.pepagi\causal" mkdir "%USERPROFILE%\.pepagi\causal"
-if not exist "%USERPROFILE%\.pepagi\skills" mkdir "%USERPROFILE%\.pepagi\skills"
+if not exist "%USERPROFILE%\.pepagi" mkdir "%USERPROFILE%\.pepagi" 2>nul
+if not exist "%USERPROFILE%\.pepagi\memory" mkdir "%USERPROFILE%\.pepagi\memory" 2>nul
+if not exist "%USERPROFILE%\.pepagi\logs" mkdir "%USERPROFILE%\.pepagi\logs" 2>nul
+if not exist "%USERPROFILE%\.pepagi\causal" mkdir "%USERPROFILE%\.pepagi\causal" 2>nul
+if not exist "%USERPROFILE%\.pepagi\skills" mkdir "%USERPROFILE%\.pepagi\skills" 2>nul
 echo  OK: Datove slozky vytvoreny: %USERPROFILE%\.pepagi
 
-:: ─── Create .env ──────────────────────────────────────────────
+:: --- Create .env ---
 
 if not exist ".env" (
-    copy ".env.example" ".env" >nul
-    echo  OK: .env soubor vytvoren
+    if exist ".env.example" (
+        copy ".env.example" ".env" >nul 2>nul
+        echo  OK: .env soubor vytvoren
+    ) else (
+        echo  INFO: .env.example nenalezen, preskakuji
+    )
 )
 
-:: ─── Check Claude CLI ─────────────────────────────────────────
+:: --- Check Claude CLI ---
 
 where claude >nul 2>&1
 if %errorlevel% equ 0 (
     echo.
     echo  OK: Claude Code CLI nalezen - OAuth autentizace dostupna
-    echo      ^(Nepotrebujes API klic pro Claude^)
 ) else (
     echo.
     echo  INFO: Claude Code CLI neni nainstalovany
@@ -83,20 +87,25 @@ if %errorlevel% equ 0 (
     echo        Instalace: https://claude.ai/download
 )
 
-:: ─── Run setup wizard ─────────────────────────────────────────
+:: --- Run setup wizard ---
 
 echo.
-echo  ════════════════════════════════════════
+echo  ======================================
 echo   Spoustim pruvodce nastavenim...
-echo  ════════════════════════════════════════
+echo  ======================================
 echo.
 
 call npm run setup
+if %errorlevel% neq 0 (
+    echo.
+    echo  UPOZORNENI: Setup wizard skoncil s chybou.
+    echo  Muzete ho spustit znovu: npm run setup
+)
 
 echo.
-echo  ╔══════════════════════════════════════╗
-echo  ║     PEPAGI je pripraven!          ║
-echo  ╚══════════════════════════════════════╝
+echo  ======================================
+echo      PEPAGI je pripraven!
+echo  ======================================
 echo.
 echo   Prikazy:
 echo   npm start                         -- otevrit chat v terminalu
@@ -108,4 +117,6 @@ echo   npx tsx src\cli.ts daemon stop    -- zastavit
 echo   npx tsx src\cli.ts daemon status  -- stav
 echo   npx tsx src\cli.ts daemon install -- nainstalovat jako Windows sluzbu
 echo.
+
+endlocal
 pause

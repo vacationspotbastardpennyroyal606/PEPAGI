@@ -9,9 +9,11 @@ import readline from "node:readline";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import chalk from "chalk";
 import { PEPAGI_DATA_DIR } from "./config/loader.js";
+
+const IS_WIN = platform() === "win32";
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
@@ -25,15 +27,16 @@ function askYesNo(question: string, defaultYes = true): Promise<boolean> {
   });
 }
 function header(title: string) {
-  console.log("\n" + chalk.cyan("═".repeat(52)));
+  const line = IS_WIN ? "=".repeat(52) : "═".repeat(52);
+  console.log("\n" + chalk.cyan(line));
   console.log(chalk.cyan.bold("  " + title));
-  console.log(chalk.cyan("═".repeat(52)));
+  console.log(chalk.cyan(line));
 }
 function info(msg: string)    { console.log(chalk.gray("  " + msg)); }
-function success(msg: string) { console.log(chalk.green("  ✓ " + msg)); }
-function warn(msg: string)    { console.log(chalk.yellow("  ⚠ " + msg)); }
+function success(msg: string) { console.log(chalk.green(IS_WIN ? "  OK: " + msg : "  ✓ " + msg)); }
+function warn(msg: string)    { console.log(chalk.yellow(IS_WIN ? "  ! " + msg : "  ⚠ " + msg)); }
 function current(label: string, value: string) {
-  console.log(chalk.gray(`  ${label}: `) + chalk.cyan(value || chalk.italic("(není nastaveno)")));
+  console.log(chalk.gray(`  ${label}: `) + chalk.cyan(value || chalk.italic(IS_WIN ? "(neni nastaveno)" : "(není nastaveno)")));
 }
 
 // ─── Config type ─────────────────────────────────────────────
@@ -128,7 +131,14 @@ async function loadExistingConfig(): Promise<SetupConfig> {
 // ─── Main setup ───────────────────────────────────────────────
 
 async function setup(): Promise<void> {
-  console.log(chalk.cyan(`
+  if (IS_WIN) {
+    console.log(chalk.cyan(`
+  ====================================
+       P E P A G I  -  N E X U S
+  ====================================
+`));
+  } else {
+    console.log(chalk.cyan(`
  ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗
  ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝
  ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗
@@ -136,6 +146,7 @@ async function setup(): Promise<void> {
  ██║ ╚████║███████╗██╔╝ ╚██╗╚██████╔╝███████║
  ╚═╝  ╚═══╝╚══════╝╚═╝   ╚═╝ ╚═════╝ ╚══════╝
 `));
+  }
   console.log(chalk.white.bold("  PEPAGI — Setup Wizard\n"));
   console.log(chalk.gray("  Konfigurace se ukládá do ~/.pepagi/config.json"));
   console.log(chalk.gray("  Stávající nastavení zůstane — mění se jen to co potvrdíš.\n"));
@@ -285,7 +296,7 @@ async function setup(): Promise<void> {
       try {
         const { execSync } = await import("node:child_process");
         execSync("codex --version", { stdio: "pipe" });
-        success("Codex CLI nalezen ✓");
+        success("Codex CLI nalezen");
       } catch {
         warn("Codex CLI není nainstalován. Po setupu spusť:");
         warn("  npm install -g @openai/codex");
@@ -362,7 +373,7 @@ async function setup(): Promise<void> {
     ? chalk.green("nastaven (token: " + config.platforms.telegram.botToken.slice(0, 8) + "...)")
     : chalk.gray("není nastaven");
   info(`Stav: ${tgStatus}`);
-  info("Jak vytvořit bota: Telegram → @BotFather → /newbot");
+  info(IS_WIN ? "Jak vytvorit bota: Telegram -> @BotFather -> /newbot" : "Jak vytvořit bota: Telegram → @BotFather → /newbot");
   info("");
 
   const changeTelegram = await askYesNo("  Chceš nastavit / změnit Telegram?", !config.platforms.telegram.enabled);
@@ -476,20 +487,24 @@ async function setup(): Promise<void> {
   // ─── Souhrn ────────────────────────────────────────────────
 
   header("HOTOVO!");
+  const ok = IS_WIN ? "[OK]" : "✓";
+  const no = IS_WIN ? "[--]" : "✗";
+  const arrow = IS_WIN ? "->" : "→";
+  const dash = IS_WIN ? "--" : "—";
   console.log(`
-  ${chalk.white.bold("Aktivní providers:")}
-  ${config.agents.claude.enabled ? chalk.green("  ✓ Claude  ") + chalk.gray(config.profile.subscriptionMode ? "(OAuth przedplatné)" : "(API klíč)") + chalk.gray(" — primární") : chalk.gray("  ✗ Claude  (vypnut)")}
-  ${config.agents.gpt.enabled    ? chalk.green("  ✓ ChatGPT ") + chalk.gray(config.profile.gptSubscriptionMode ? "(OAuth Codex CLI)"   : "(API klíč)") + chalk.gray(" — záloha")  : chalk.gray("  ✗ ChatGPT (vypnut)")}
-  ${config.agents.gemini.enabled ? chalk.green("  ✓ Gemini  ") + chalk.gray("(API klíč)") + chalk.gray(" — záloha") : chalk.gray("  ✗ Gemini  (vypnut)")}
+  ${chalk.white.bold("Aktivni providers:")}
+  ${config.agents.claude.enabled ? chalk.green(`  ${ok} Claude  `) + chalk.gray(config.profile.subscriptionMode ? "(OAuth predplatne)" : "(API klic)") + chalk.gray(` ${dash} primarni`) : chalk.gray(`  ${no} Claude  (vypnut)`)}
+  ${config.agents.gpt.enabled    ? chalk.green(`  ${ok} ChatGPT `) + chalk.gray(config.profile.gptSubscriptionMode ? "(OAuth Codex CLI)"   : "(API klic)") + chalk.gray(` ${dash} zaloha`)  : chalk.gray(`  ${no} ChatGPT (vypnut)`)}
+  ${config.agents.gemini.enabled ? chalk.green(`  ${ok} Gemini  `) + chalk.gray("(API klic)") + chalk.gray(` ${dash} zaloha`) : chalk.gray(`  ${no} Gemini  (vypnut)`)}
 
-  ${chalk.white.bold("Přepínání při rate limitu:")}
-  ${chalk.gray("  Pokud Claude narazí na limit → automaticky přepne na ChatGPT / Gemini.")}
-  ${chalk.gray("  Po 60 sekundách se Claude zkusí znovu.")}
+  ${chalk.white.bold("Prepinani pri rate limitu:")}
+  ${chalk.gray(`  Pokud Claude narazi na limit ${arrow} automaticky prepne na ChatGPT / Gemini.`)}
+  ${chalk.gray("  Po 60 sekundach se Claude zkusi znovu.")}
 
-  ${chalk.white.bold("Co dál:")}
-  ${chalk.cyan("  npm run daemon")}      — spustit Telegram/WhatsApp
-  ${chalk.cyan("  npm run cli")}         — interaktivní terminál
-  ${chalk.cyan("  npm run setup")}       — znovu spustit wizard (nic nepřepíše)
+  ${chalk.white.bold("Co dal:")}
+  ${chalk.cyan("  npm run daemon")}      ${dash} spustit Telegram/WhatsApp
+  ${chalk.cyan("  npm run cli")}         ${dash} interaktivni terminal
+  ${chalk.cyan("  npm run setup")}       ${dash} znovu spustit wizard (nic neprepise)
 
   ${chalk.gray("  Config:")} ${configPath}
   `);
