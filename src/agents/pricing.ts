@@ -64,3 +64,37 @@ export function getPricing(model: string): ModelPricing | undefined {
 export const CHEAP_CLAUDE_MODEL = "claude-haiku-4-5";
 /** Best quality Claude model for mediator */
 export const BEST_CLAUDE_MODEL = "claude-opus-4-6";
+
+/** Cheapest model per provider — used for auxiliary LLM calls (planning, simulation, memory, etc.) */
+const CHEAP_MODELS: Record<string, string> = {
+  claude:  "claude-haiku-4-5",
+  gpt:     "gpt-4o-mini",
+  gemini:  "gemini-2.0-flash",
+  ollama:  "ollama/gemma3:12b",
+  lmstudio: "lmstudio/local-model",
+};
+
+/** Default (balanced) model per provider — used as manager / main model */
+const DEFAULT_MODELS: Record<string, string> = {
+  claude:  "claude-sonnet-4-6",
+  gpt:     "gpt-4o",
+  gemini:  "gemini-2.0-flash",
+  ollama:  "ollama/gemma3:12b",
+  lmstudio: "lmstudio/local-model",
+};
+
+/**
+ * Get the cheapest model for a given provider.
+ * Used for auxiliary operations (difficulty estimation, simulation, memory, reflection).
+ */
+export function getCheapModel(provider: string): string {
+  return CHEAP_MODELS[provider] ?? CHEAP_MODELS["claude"]!;
+}
+
+/**
+ * Get the default (balanced) model for a given provider.
+ * Used when no specific model is configured.
+ */
+export function getDefaultModel(provider: string): string {
+  return DEFAULT_MODELS[provider] ?? DEFAULT_MODELS["claude"]!;
+}

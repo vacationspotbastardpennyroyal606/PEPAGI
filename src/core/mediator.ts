@@ -170,6 +170,20 @@ export class Mediator {
     this.predictiveContextLoader = loader;
   }
 
+  /**
+   * Hot-reload config at runtime (called after web UI saves new settings).
+   * Updates managerProvider/managerModel and rebuilds system prompt with current agent pool.
+   */
+  updateConfig(newConfig: PepagiConfig): void {
+    this.config = newConfig;
+    this.systemPrompt = buildMediatorSystemPrompt(
+      this.pool.getAvailableAgents(),
+      newConfig.profile as import("./mediator-prompt.js").PersonaProfile | undefined,
+      undefined,
+      PROJECT_ROOT,
+    );
+  }
+
   /** Kill a running agent execution. Returns true if found. */
   killAgent(provider: import("./types.js").AgentProvider): boolean {
     return this.executor.killAgent(provider);
@@ -521,15 +535,21 @@ export class Mediator {
   private async askMediator(context: string, taskId: string): Promise<MediatorDecision> {
     const MAX_PARSE_RETRIES = 2;
 
-    // Build fallback chain: primary provider first, then others
+    // Build fallback chain: primary provider first, then others.
+    // Each provider uses its OWN configured model (never mix provider+model from another).
     const primaryProvider = (this.config.managerProvider ?? "claude") as "claude" | "gpt" | "gemini";
     const allProviders: Array<{ provider: "claude" | "gpt" | "gemini"; model: string }> = [
-      { provider: "claude", model: this.config.managerModel },
+      { provider: "claude", model: this.config.agents.claude.model },
       { provider: "gpt",    model: this.config.agents.gpt.model },
       { provider: "gemini", model: this.config.agents.gemini.model },
     ];
+    // Primary provider: use managerModel (config ensures it matches the provider)
+    const primaryEntry = allProviders.find(p => p.provider === primaryProvider)!;
+    if (this.config.managerModel) {
+      primaryEntry.model = this.config.managerModel;
+    }
     const providerChain = [
-      allProviders.find(p => p.provider === primaryProvider)!,
+      primaryEntry,
       ...allProviders.filter(p => p.provider !== primaryProvider),
     ];
 

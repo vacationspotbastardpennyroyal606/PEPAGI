@@ -7,8 +7,10 @@ import type { TaskStore } from "../core/task-store.js";
 import type { Mediator } from "../core/mediator.js";
 import type { StateBridge } from "./state-bridge.js";
 import type { AgentPool } from "../agents/agent-pool.js";
+import type { LLMProvider } from "../agents/llm-provider.js";
 import type { AgentProvider } from "../core/types.js";
-import { loadConfig, saveConfig, type PepagiConfig } from "../config/loader.js";
+import { loadConfig, saveConfig, invalidateConfigCache, type PepagiConfig } from "../config/loader.js";
+import { getCheapModel } from "../agents/pricing.js";
 import { encrypt, decrypt, isEncrypted } from "../ui/config-crypto.js";
 
 export interface RestDeps {
@@ -17,6 +19,7 @@ export interface RestDeps {
   mediator: Mediator;
   startTime: number;
   pool?: AgentPool;
+  llm?: LLMProvider;
 }
 
 /** Send JSON response. */
@@ -129,8 +132,23 @@ function mergeConfig(existing: PepagiConfig, incoming: Record<string, unknown>):
   const merged = JSON.parse(JSON.stringify(existing)) as Record<string, unknown>;
 
   // Top-level simple fields
-  if (incoming["managerProvider"] !== undefined) merged["managerProvider"] = incoming["managerProvider"];
-  if (incoming["managerModel"] !== undefined) merged["managerModel"] = incoming["managerModel"];
+  if (incoming["managerProvider"] !== undefined) {
+    merged["managerProvider"] = incoming["managerProvider"];
+    // When managerProvider changes, auto-set managerModel to that provider's configured model
+    // UNLESS the caller also explicitly sent a managerModel for the new provider.
+    if (incoming["managerModel"] !== undefined) {
+      merged["managerModel"] = incoming["managerModel"];
+    } else {
+      const newProvider = incoming["managerProvider"] as string;
+      const agentsCfg = (merged["agents"] ?? {}) as Record<string, Record<string, unknown>>;
+      const providerCfg = agentsCfg[newProvider];
+      if (providerCfg && typeof providerCfg["model"] === "string") {
+        merged["managerModel"] = providerCfg["model"];
+      }
+    }
+  } else if (incoming["managerModel"] !== undefined) {
+    merged["managerModel"] = incoming["managerModel"];
+  }
 
   // Profile
   if (incoming["profile"] && typeof incoming["profile"] === "object") {
@@ -219,15 +237,30 @@ export async function handleGetConfig(_deps: RestDeps, _req: IncomingMessage, re
   }
 }
 
-/** PUT /api/config — validate, encrypt secrets, save. */
-export async function handlePutConfig(_deps: RestDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+/** PUT /api/config — validate, encrypt secrets, save, and hot-reload running services. */
+export async function handlePutConfig(deps: RestDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
     const raw = await readBody(req);
     const incoming = JSON.parse(raw) as Record<string, unknown>;
     const existing = await loadConfig();
     const merged = mergeConfig(existing, incoming);
     await saveConfig(merged);
-    json(res, 200, { success: true, message: "Config saved" });
+
+    // Hot-reload: reconfigure LLM provider with new manager settings
+    if (deps.llm) {
+      const provider = merged.managerProvider as "claude" | "gpt" | "gemini";
+      deps.llm.configure(provider, merged.managerModel, getCheapModel(provider));
+    }
+
+    // Hot-reload: update mediator's config reference (askMediator reads this.config)
+    if (deps.mediator) {
+      deps.mediator.updateConfig(merged);
+    }
+
+    // Hot-reload: invalidate cached config so next loadConfig() re-reads fresh settings
+    invalidateConfigCache();
+
+    json(res, 200, { success: true, message: "Config saved and applied to running daemon" });
   } catch (err) {
     json(res, 400, { error: `Failed to save config: ${String(err)}` });
   }

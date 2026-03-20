@@ -257,8 +257,38 @@ export async function loadConfig(): Promise<PepagiConfig> {
     log("GOOGLE_API_KEY detected — Gemini agent enabled");
   }
 
-  cachedConfig = PepagiConfigSchema.parse(raw);
+  const config = PepagiConfigSchema.parse(raw);
+
+  // Auto-correct managerProvider if the configured provider is disabled or has no API key.
+  // This ensures that if the user disabled Claude and only has GPT, the system actually uses GPT.
+  const mgrProvider = config.managerProvider as "claude" | "gpt" | "gemini";
+  const mgrAgent = config.agents[mgrProvider];
+  const mgrHasKey = !!(mgrAgent.apiKey || (mgrProvider === "claude" ? true : mgrProvider === "gpt" ? process.env.OPENAI_API_KEY : process.env.GOOGLE_API_KEY));
+  const mgrIsUsable = mgrProvider === "claude" ? mgrAgent.enabled : mgrAgent.enabled && mgrHasKey;
+
+  if (!mgrIsUsable) {
+    // Find first enabled agent with an API key to use as manager
+    const candidates: Array<"claude" | "gpt" | "gemini"> = ["claude", "gpt", "gemini"];
+    for (const candidate of candidates) {
+      const agentCfg = config.agents[candidate];
+      const hasKey = !!(agentCfg.apiKey || (candidate === "claude" ? true : candidate === "gpt" ? process.env.OPENAI_API_KEY : process.env.GOOGLE_API_KEY));
+      const usable = candidate === "claude" ? agentCfg.enabled : agentCfg.enabled && hasKey;
+      if (usable) {
+        log(`managerProvider was "${mgrProvider}" (disabled/no key) — auto-switching to "${candidate}"`);
+        config.managerProvider = candidate;
+        config.managerModel = agentCfg.model;
+        break;
+      }
+    }
+  }
+
+  cachedConfig = config;
   return cachedConfig;
+}
+
+/** Invalidate the cached config — forces next loadConfig() to re-read from disk. */
+export function invalidateConfigCache(): void {
+  cachedConfig = null;
 }
 
 /** Save configuration to disk */

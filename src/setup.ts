@@ -440,16 +440,25 @@ async function setup(): Promise<void> {
 
   // ─── Určit hlavního providera (managerProvider) ────────────
 
-  // Set manager to first enabled provider
-  if (config.agents.claude.enabled) {
-    config.managerProvider = "claude";
-    config.managerModel = config.agents.claude.model;
-  } else if (config.agents.gpt.enabled) {
-    config.managerProvider = "gpt";
-    config.managerModel = config.agents.gpt.model;
-  } else if (config.agents.gemini.enabled) {
-    config.managerProvider = "gemini";
-    config.managerModel = config.agents.gemini.model;
+  // Only change managerProvider if the current one is disabled (respect user's choice)
+  const currentMgr = config.managerProvider as "claude" | "gpt" | "gemini";
+  const currentMgrEnabled = config.agents[currentMgr]?.enabled ?? false;
+
+  if (!currentMgrEnabled) {
+    // Current manager provider was disabled — switch to first enabled one
+    if (config.agents.claude.enabled) {
+      config.managerProvider = "claude";
+      config.managerModel = config.agents.claude.model;
+    } else if (config.agents.gpt.enabled) {
+      config.managerProvider = "gpt";
+      config.managerModel = config.agents.gpt.model;
+    } else if (config.agents.gemini.enabled) {
+      config.managerProvider = "gemini";
+      config.managerModel = config.agents.gemini.model;
+    }
+  } else {
+    // Current manager is still enabled — just make sure model matches
+    config.managerModel = config.agents[currentMgr].model;
   }
 
   // ─── Uložit ────────────────────────────────────────────────

@@ -13,8 +13,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import chalk from "chalk";
 
-import { loadConfig, PEPAGI_DATA_DIR } from "./config/loader.js";
+import { loadConfig, PEPAGI_DATA_DIR, saveConfig } from "./config/loader.js";
 import { LLMProvider } from "./agents/llm-provider.js";
+import { getCheapModel } from "./agents/pricing.js";
 import { AgentPool } from "./agents/agent-pool.js";
 import { SecurityGuard } from "./security/security-guard.js";
 import { TaskStore } from "./core/task-store.js";
@@ -70,6 +71,9 @@ async function main(): Promise<void> {
 
   // Boot core services
   const llm = new LLMProvider();
+  // Configure LLM with the user's chosen provider so quickCall() respects it
+  const mgrProvider = config.managerProvider as "claude" | "gpt" | "gemini";
+  llm.configure(mgrProvider, config.managerModel, getCheapModel(mgrProvider));
   const pool = new AgentPool(config);
   const guard = new SecurityGuard(config);
   const taskStore = new TaskStore();
@@ -218,7 +222,7 @@ async function main(): Promise<void> {
   // Start Web Dashboard (browser UI on localhost:3100)
   let webDashboard: WebDashboardServer | null = null;
   if (config.web?.enabled !== false) {
-    webDashboard = new WebDashboardServer(taskStore, mediator, { port: config.web?.port ?? 3100, pool });
+    webDashboard = new WebDashboardServer(taskStore, mediator, { port: config.web?.port ?? 3100, pool, llm });
     try {
       await webDashboard.start();
       logger.info("Web dashboard started", { port: config.web?.port ?? 3100 });

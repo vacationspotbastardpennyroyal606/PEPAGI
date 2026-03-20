@@ -57,13 +57,15 @@ export class WebDashboardServer {
   private readonly port: number;
   private readonly startTime: number;
   private pool: import("../agents/agent-pool.js").AgentPool | null;
+  private llm: import("../agents/llm-provider.js").LLMProvider | null;
 
   constructor(
     private readonly taskStore: TaskStore,
     private readonly mediator: Mediator,
-    opts?: { port?: number; pool?: import("../agents/agent-pool.js").AgentPool },
+    opts?: { port?: number; pool?: import("../agents/agent-pool.js").AgentPool; llm?: import("../agents/llm-provider.js").LLMProvider },
   ) {
     this.pool = opts?.pool ?? null;
+    this.llm = opts?.llm ?? null;
     this.port = opts?.port ?? 3100;
     this.bridge = new StateBridge();
     this.publicDir = resolvePublicDir();
@@ -80,6 +82,7 @@ export class WebDashboardServer {
       mediator: this.mediator,
       startTime: this.startTime,
       pool: this.pool ?? undefined,
+      llm: this.llm ?? undefined,
     };
 
     this.httpServer = createServer((req, res) => {

@@ -6,6 +6,7 @@ import readline from "node:readline";
 import chalk from "chalk";
 import { loadConfig, PEPAGI_DATA_DIR } from "./config/loader.js";
 import { LLMProvider } from "./agents/llm-provider.js";
+import { getCheapModel } from "./agents/pricing.js";
 import { AgentPool } from "./agents/agent-pool.js";
 import { SecurityGuard } from "./security/security-guard.js";
 import { TaskStore } from "./core/task-store.js";
@@ -86,6 +87,8 @@ async function printHelp(): Promise<void> {
 async function boot() {
   const config = await loadConfig();
   const llm = new LLMProvider();
+  const mgrProvider = config.managerProvider as "claude" | "gpt" | "gemini";
+  llm.configure(mgrProvider, config.managerModel, getCheapModel(mgrProvider));
   const pool = new AgentPool(config);
   const guard = new SecurityGuard(config);
   const taskStore = new TaskStore();
@@ -272,7 +275,11 @@ async function showMemory(services: Awaited<ReturnType<typeof boot>>): Promise<v
 }
 
 async function showProposals(): Promise<void> {
-  const archProposer = new ArchitectureProposer(new LLMProvider());
+  const proposalLlm = new LLMProvider();
+  const proposalConfig = await loadConfig();
+  const proposalProvider = proposalConfig.managerProvider as "claude" | "gpt" | "gemini";
+  proposalLlm.configure(proposalProvider, proposalConfig.managerModel, getCheapModel(proposalProvider));
+  const archProposer = new ArchitectureProposer(proposalLlm);
   const proposals = await archProposer.getProposals();
 
   console.log(chalk.white.bold("\nArchitektonické návrhy zlepšení\n"));

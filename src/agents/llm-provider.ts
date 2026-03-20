@@ -1829,6 +1829,29 @@ async function transcribeWithLocalWhisper(audioBuffer: Buffer, language: string)
 // ─── Main LLMProvider class ────────────────────────────────────
 
 export class LLMProvider {
+  /** Default provider for quickCall — set via configure() */
+  private _defaultProvider: "claude" | "gpt" | "gemini" | "ollama" | "lmstudio" = "claude";
+  /** Default model for quickCall — set via configure() */
+  private _defaultModel = "claude-opus-4-6";
+  /** Cheap model for auxiliary calls — set via configure() */
+  private _cheapModel = "claude-haiku-4-5";
+
+  /**
+   * Configure default provider/model for quick calls.
+   * Should be called after config is loaded — typically in daemon.ts or cli.ts.
+   */
+  configure(provider: "claude" | "gpt" | "gemini" | "ollama" | "lmstudio", model: string, cheapModel: string): void {
+    this._defaultProvider = provider;
+    this._defaultModel = model;
+    this._cheapModel = cheapModel;
+    logger.info(`LLMProvider configured: provider=${provider}, model=${model}, cheap=${cheapModel}`);
+  }
+
+  /** Get the currently configured default provider */
+  get defaultProvider(): string { return this._defaultProvider; }
+  /** Get the currently configured cheap model */
+  get cheapModel(): string { return this._cheapModel; }
+
   /**
    * Call an LLM provider with the given options.
    * Claude uses Agent SDK (CLI OAuth), others use direct fetch.
@@ -1855,16 +1878,29 @@ export class LLMProvider {
   }
 
   /**
-   * Quick call to Claude (CLI OAuth) — no API key needed.
+   * Provider-agnostic quick call — uses the configured default provider.
+   * All auxiliary operations (planning, simulation, memory, reflection) should use this.
+   * @param systemPrompt - System prompt
+   * @param userMessage - User message
+   * @param model - Model override (default: cheap model from configure())
+   * @param json - Whether to request JSON response format
    */
-  async quickClaude(systemPrompt: string, userMessage: string, model = "claude-opus-4-6", json = false): Promise<LLMResponse> {
+  async quickCall(systemPrompt: string, userMessage: string, model?: string, json = false): Promise<LLMResponse> {
     return this.call({
-      provider: "claude",
-      model,
+      provider: this._defaultProvider,
+      model: model ?? this._cheapModel,
       systemPrompt,
       messages: [{ role: "user", content: userMessage }],
       responseFormat: json ? "json" : "text",
     });
+  }
+
+  /**
+   * @deprecated Use quickCall() instead — quickClaude() ignores configured provider.
+   * Kept for backward compatibility; now delegates to quickCall().
+   */
+  async quickClaude(systemPrompt: string, userMessage: string, _model?: string, json = false): Promise<LLMResponse> {
+    return this.quickCall(systemPrompt, userMessage, undefined, json);
   }
 
   /**
