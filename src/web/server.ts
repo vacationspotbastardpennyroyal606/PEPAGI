@@ -80,6 +80,8 @@ export class WebDashboardServer {
   /** Start the HTTP + WebSocket server. */
   async start(): Promise<void> {
     this.bridge.start();
+    // Hydrate dashboard with persisted task history (survives redeploy)
+    this.bridge.hydrateFromTasks(this.taskStore.getAll());
 
     const deps: RestDeps = {
       bridge: this.bridge,

@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { eventBus } from "../core/event-bus.js";
-import type { PepagiEvent, AgentProvider } from "../core/types.js";
+import type { PepagiEvent, AgentProvider, Task } from "../core/types.js";
 import { PEPAGI_DATA_DIR } from "../config/loader.js";
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -120,6 +120,39 @@ export class StateBridge {
       ws.close();
     }
     this.clients.clear();
+  }
+
+  /**
+   * Hydrate dashboard state from persisted tasks (on startup).
+   * Restores completed/failed task history so dashboard survives redeploy.
+   */
+  hydrateFromTasks(tasks: Task[]): void {
+    for (const t of tasks) {
+      const row: TaskRow = {
+        id: t.id, title: t.title, status: t.status,
+        agent: t.assignedTo, difficulty: t.difficulty,
+        confidence: t.confidence, cost: t.estimatedCost,
+        durationMs: (t.completedAt && t.createdAt)
+          ? new Date(t.completedAt).getTime() - new Date(t.createdAt).getTime()
+          : null,
+        createdAt: new Date(t.createdAt).getTime(),
+        assignedAt: t.startedAt ? new Date(t.startedAt).getTime() : null,
+        startedAt: t.startedAt ? new Date(t.startedAt).getTime() : null,
+        swarmBranches: 0,
+        result: typeof t.output?.result === "string" ? t.output.result
+          : t.output?.summary ?? t.lastError ?? null,
+      };
+      if (t.status === "completed" || t.status === "failed" || t.status === "cancelled") {
+        pushBounded(this.state.completedTasks, row, 100);
+        if (t.status === "completed") this.state.totalCompleted++;
+        else this.state.totalFailed++;
+        this.state.sessionCost += t.estimatedCost;
+      } else {
+        this.state.activeTasks.set(t.id, row);
+      }
+    }
+    // Sort completed by createdAt descending (most recent first)
+    this.state.completedTasks.sort((a, b) => b.createdAt - a.createdAt);
   }
 
   /** Add WebSocket client. Sends full state snapshot immediately. */

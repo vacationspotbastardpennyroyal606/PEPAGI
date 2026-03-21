@@ -21,7 +21,7 @@ export class TaskStore {
 
   // ── Persistence ─────────────────────────────────────────────
 
-  /** Load uncompleted tasks from disk on startup. */
+  /** Load tasks from disk on startup — both pending and recent terminal tasks. */
   async load(): Promise<void> {
     await mkdir(PEPAGI_DATA_DIR, { recursive: true });
     if (!existsSync(TASKS_FILE)) return;
@@ -34,9 +34,6 @@ export class TaskStore {
         t.createdAt   = new Date(t.createdAt);
         t.startedAt   = t.startedAt   ? new Date(t.startedAt)   : null;
         t.completedAt = t.completedAt ? new Date(t.completedAt) : null;
-
-        // Skip terminal tasks — they're already in episodic memory
-        if (t.status === "completed" || t.status === "failed" || t.status === "cancelled") continue;
 
         // Reset in-flight tasks to pending (they didn't finish before crash)
         if (t.status === "running" || t.status === "assigned") {
@@ -55,13 +52,18 @@ export class TaskStore {
             if (parent && !parent.subtaskIds.includes(t.id)) parent.subtaskIds.push(t.id);
           }
         }
-        // FIX: use structured logger instead of console.log
-        taskStoreLogger.info("Restored pending tasks from disk", { restored });
+        taskStoreLogger.info("Restored tasks from disk", { restored });
       }
     } catch (err) {
-      // FIX: use structured logger instead of console.warn
       taskStoreLogger.warn("Failed to load tasks.json (starting fresh)", { error: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  /** Get terminal tasks (completed/failed/cancelled) — for dashboard hydration. */
+  getTerminal(): Task[] {
+    return [...this.tasks.values()].filter(
+      t => t.status === "completed" || t.status === "failed" || t.status === "cancelled"
+    );
   }
 
   /** Schedule a debounced async save (max once per 500ms). */
@@ -75,9 +77,14 @@ export class TaskStore {
     }, 500);
   }
 
-  /** Atomic write: tmp → rename. */
+  /** Atomic write: tmp → rename. Keeps last 500 tasks to avoid unbounded growth. */
   private async persist(): Promise<void> {
-    const list = [...this.tasks.values()];
+    let list = [...this.tasks.values()];
+    if (list.length > 500) {
+      // Keep most recent 500 by createdAt
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      list = list.slice(0, 500);
+    }
     await mkdir(PEPAGI_DATA_DIR, { recursive: true });
     await writeFile(TASKS_TMP, JSON.stringify(list, null, 2), "utf8");
     await rename(TASKS_TMP, TASKS_FILE);
