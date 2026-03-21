@@ -113,6 +113,7 @@ const DEFAULT_CONFIG: SetupConfig = {
   },
   queue: { maxConcurrentTasks: 4, taskTimeoutMs: 120_000 },
   n8n: { enabled: false, baseUrl: "", webhookPaths: [], apiKey: "" },
+  selfHealing: { enabled: true, maxAttemptsPerHour: 3, cooldownMs: 300_000, costCapPerAttempt: 0.50, allowCodeFixes: false },
 };
 
 /** Load existing config and deep-merge with defaults (existing values win) */
@@ -140,6 +141,7 @@ async function loadExistingConfig(): Promise<SetupConfig> {
       security:  { ...DEFAULT_CONFIG.security,   ...(raw.security  ?? {}) },
       queue:     { ...DEFAULT_CONFIG.queue,       ...(raw.queue     ?? {}) },
       n8n:       { ...DEFAULT_CONFIG.n8n,         ...(raw.n8n       ?? {}) },
+      selfHealing: { ...DEFAULT_CONFIG.selfHealing!, ...(raw.selfHealing ?? {}) },
     };
   } catch {
     warn("Stávající config se nepodařilo načíst — začínám s výchozími hodnotami.");

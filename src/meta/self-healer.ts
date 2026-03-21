@@ -3,7 +3,7 @@
 // Autonomous diagnostics and repair with safety guardrails.
 // ═══════════════════════════════════════════════════════════════
 
-import { readFile, appendFile, mkdir, rename, readdir } from "node:fs/promises";
+import { readFile, writeFile, appendFile, mkdir, rename, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
@@ -57,17 +57,33 @@ interface HealLogEntry {
 
 // ─── Constants ──────────────────────────────────────────────
 
-/** Files that must never be modified by self-heal code fixes */
+/** Files that must never be modified by self-heal code fixes — ALL security module files */
 const PROTECTED_FILES = new Set([
-  "security-guard.ts",
-  "tripwire.ts",
+  "agent-authenticator.ts",
   "audit-log.ts",
-  "dlp-engine.ts",
-  "credential-scrubber.ts",
-  "credential-lifecycle.ts",
-  "supply-chain.ts",
-  "tls-verifier.ts",
+  "compliance-map.ts",
+  "context-boundary.ts",
   "cost-tracker.ts",
+  "credential-lifecycle.ts",
+  "credential-scrubber.ts",
+  "dlp-engine.ts",
+  "drift-detector.ts",
+  "incident-response.ts",
+  "input-sanitizer.ts",
+  "memory-guard.ts",
+  "output-sanitizer.ts",
+  "path-validator.ts",
+  "policy-anchor.ts",
+  "rate-limiter.ts",
+  "reasoning-monitor.ts",
+  "safe-fs.ts",
+  "security-guard.ts",
+  "side-channel.ts",
+  "supply-chain.ts",
+  "task-content-guard.ts",
+  "tls-verifier.ts",
+  "tool-guard.ts",
+  "tripwire.ts",
 ]);
 
 const HEAL_LOG_FILE = join(PEPAGI_DATA_DIR, "self-heal.jsonl");
@@ -141,10 +157,8 @@ export class SelfHealer {
       return false;
     }
 
-    // Set cooldown for next attempt and record this attempt for rate limiting
+    // Set cooldown — actual rate-limit entry is recorded by recordAttempt() after the heal runs
     this.cooldownUntil = now + cooldownMs;
-    this.healAttempts.push({ ts: now, tier: 0, success: false }); // tier/success updated later by recordAttempt
-    if (this.healAttempts.length > 20) this.healAttempts.shift();
     return true;
   }
 
@@ -304,10 +318,7 @@ Cost budget: $${costCap}. Be conservative — prefer Tier 1.`;
             t.status === "running" && t.startedAt && (now - t.startedAt.getTime()) > 600_000, // 10 min
           );
           for (const task of stuck) {
-            task.status = "failed";
-            task.lastError = "Killed by self-healer: stuck > 10 min";
-            task.completedAt = new Date();
-            eventBus.emit({ type: "task:failed", taskId: task.id, error: "Killed by self-healer: stuck > 10 min" });
+            this.taskStore.fail(task.id, "Killed by self-healer: stuck > 10 min");
           }
           const count = stuck.length;
           logger.info(`Tier 1: Killed ${count} stuck tasks`);
@@ -325,8 +336,7 @@ Cost budget: $${costCap}. Be conservative — prefer Tier 1.`;
               // Config is corrupted — back it up and try to preserve API keys
               const backupPath = `${configPath}.bak.${now}`;
               try {
-                const { rename: fsRename } = await import("node:fs/promises");
-                await fsRename(configPath, backupPath);
+                await rename(configPath, backupPath);
               } catch { /* ignore */ }
               logger.warn("Tier 1: Config corrupted — backed up and will use defaults on next load");
               return { tier: 1, success: true, action, details: `Config backed up to ${backupPath} — defaults will be used`, timestamp: now };
@@ -336,8 +346,9 @@ Cost budget: $${costCap}. Be conservative — prefer Tier 1.`;
         }
 
         case "force_gc": {
-          if (global.gc) {
-            global.gc();
+          const gc = (globalThis as unknown as { gc?: () => void }).gc;
+          if (gc) {
+            gc();
             logger.info("Tier 1: Forced garbage collection");
           }
           // Also kill heavy tasks
@@ -345,10 +356,7 @@ Cost budget: $${costCap}. Be conservative — prefer Tier 1.`;
             t.status === "running" && t.tokensUsed.input + t.tokensUsed.output > 200_000,
           );
           for (const task of heavyTasks) {
-            task.status = "failed";
-            task.lastError = "Killed by self-healer: high token usage under memory pressure";
-            task.completedAt = new Date();
-            eventBus.emit({ type: "task:failed", taskId: task.id, error: "Killed by self-healer: memory pressure" });
+            this.taskStore.fail(task.id, "Killed by self-healer: high token usage under memory pressure");
           }
           return { tier: 1, success: true, action, details: `GC triggered, killed ${heavyTasks.length} heavy tasks`, timestamp: now };
         }
@@ -382,6 +390,8 @@ Cost budget: $${costCap}. Be conservative — prefer Tier 1.`;
 
         case "restart_daemon": {
           logger.warn("Tier 1: Requesting daemon restart via process.exit(1)");
+          // Stop self-healer first to prevent re-entrant trigger from the critical alert below
+          this.stop();
           // Emit alert before exit so platforms can notify user
           eventBus.emit({ type: "system:alert", message: "Self-healer: restarting daemon due to systemic failure", level: "critical" });
           // Give event handlers time to process
@@ -475,7 +485,6 @@ Rules:
           logger.warn("Tier 2: Search string not found in file", { file: edit.file });
           continue;
         }
-        const { writeFile } = await import("node:fs/promises");
         await writeFile(filePath, content.replace(edit.search, edit.replace), "utf8");
       }
 

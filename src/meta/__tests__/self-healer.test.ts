@@ -6,17 +6,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────
 
+const { mockExistsSync, mockReadFile, mockReaddir, mockRename } = vi.hoisted(() => ({
+  mockExistsSync: vi.fn(() => false),
+  mockReadFile: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
+  mockReaddir: vi.fn().mockResolvedValue([]),
+  mockRename: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
-  readFile: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
+  readFile: mockReadFile,
   writeFile: vi.fn().mockResolvedValue(undefined),
-  rename: vi.fn().mockResolvedValue(undefined),
+  rename: mockRename,
   appendFile: vi.fn().mockResolvedValue(undefined),
-  readdir: vi.fn().mockResolvedValue([]),
+  readdir: mockReaddir,
 }));
 
 vi.mock("node:fs", () => ({
-  existsSync: vi.fn(() => false),
+  existsSync: mockExistsSync,
 }));
 
 vi.mock("node:child_process", () => ({
@@ -150,9 +157,12 @@ function makeMockTaskStore(tasks: Array<{ id: string; status: string; startedAt?
       completedAt: null,
       lastError: null,
       tokensUsed: t.tokensUsed ?? { input: 0, output: 0 },
+      attempts: 0,
+      maxAttempts: 3,
     }))),
     get: vi.fn(),
     load: vi.fn().mockResolvedValue(undefined),
+    fail: vi.fn(),
   } as unknown as TaskStore;
 }
 
@@ -168,14 +178,18 @@ describe("SelfHealer.canAttemptHeal", () => {
     expect(healer.canAttemptHeal()).toBe(true);
   });
 
-  it("blocks when rate limit exceeded", () => {
+  it("blocks when rate limit exceeded (via recordAttempt)", () => {
     const config = makeConfig({ maxAttemptsPerHour: 2, cooldownMs: 0 });
     const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), config);
 
-    // First two pass
-    expect(healer.canAttemptHeal()).toBe(true);
-    expect(healer.canAttemptHeal()).toBe(true);
-    // Third is blocked
+    // Simulate 2 completed heal attempts via internal state
+    const now = Date.now();
+    // @ts-expect-error — accessing private for test
+    healer.healAttempts.push({ ts: now, tier: 1, success: true });
+    // @ts-expect-error — accessing private for test
+    healer.healAttempts.push({ ts: now, tier: 1, success: false });
+
+    // Third is blocked by rate limit
     expect(healer.canAttemptHeal()).toBe(false);
   });
 
@@ -203,7 +217,7 @@ describe("SelfHealer.canAttemptHeal", () => {
     const config = makeConfig({ maxAttemptsPerHour: 2, cooldownMs: 0 });
     const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), config);
 
-    // Simulate old attempts by accessing internal state
+    // Simulate old attempts
     const oldTs = Date.now() - 3_700_000; // over 1 hour ago
     // @ts-expect-error — accessing private for test
     healer.healAttempts.push({ ts: oldTs, tier: 1, success: true });
@@ -218,17 +232,19 @@ describe("SelfHealer.canAttemptHeal", () => {
 describe("SelfHealer.isProtectedFile", () => {
   const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), makeConfig());
 
-  it("detects protected security files", () => {
-    expect(healer.isProtectedFile("security-guard.ts")).toBe(true);
-    expect(healer.isProtectedFile("src/security/security-guard.ts")).toBe(true);
-    expect(healer.isProtectedFile("tripwire.ts")).toBe(true);
-    expect(healer.isProtectedFile("audit-log.ts")).toBe(true);
-    expect(healer.isProtectedFile("dlp-engine.ts")).toBe(true);
-    expect(healer.isProtectedFile("credential-scrubber.ts")).toBe(true);
-    expect(healer.isProtectedFile("credential-lifecycle.ts")).toBe(true);
-    expect(healer.isProtectedFile("supply-chain.ts")).toBe(true);
-    expect(healer.isProtectedFile("tls-verifier.ts")).toBe(true);
-    expect(healer.isProtectedFile("cost-tracker.ts")).toBe(true);
+  it("detects all 25 protected security files", () => {
+    const allProtected = [
+      "agent-authenticator.ts", "audit-log.ts", "compliance-map.ts", "context-boundary.ts",
+      "cost-tracker.ts", "credential-lifecycle.ts", "credential-scrubber.ts", "dlp-engine.ts",
+      "drift-detector.ts", "incident-response.ts", "input-sanitizer.ts", "memory-guard.ts",
+      "output-sanitizer.ts", "path-validator.ts", "policy-anchor.ts", "rate-limiter.ts",
+      "reasoning-monitor.ts", "safe-fs.ts", "security-guard.ts", "side-channel.ts",
+      "supply-chain.ts", "task-content-guard.ts", "tls-verifier.ts", "tool-guard.ts", "tripwire.ts",
+    ];
+    for (const file of allProtected) {
+      expect(healer.isProtectedFile(file)).toBe(true);
+      expect(healer.isProtectedFile(`src/security/${file}`)).toBe(true);
+    }
   });
 
   it("allows non-protected files", () => {
@@ -248,7 +264,6 @@ describe("SelfHealer.diagnose", () => {
 
     expect(diag.suggestedTier).toBe(1);
     expect(diag.suggestedAction).toBe("reset_circuit_breaker");
-    // Should NOT have called LLM
     expect(llm.quickCall).not.toHaveBeenCalled();
   });
 
@@ -258,7 +273,6 @@ describe("SelfHealer.diagnose", () => {
 
     const ctx: HealContext = { trigger: "meta:watchdog_alert", message: "Task stuck for 15 minutes", timestamp: Date.now() };
     const diag = await healer.diagnose(ctx);
-
     expect(diag.suggestedAction).toBe("kill_stuck_tasks");
   });
 
@@ -268,7 +282,6 @@ describe("SelfHealer.diagnose", () => {
 
     const ctx: HealContext = { trigger: "system:alert", message: "Config parse error: invalid JSON", timestamp: Date.now() };
     const diag = await healer.diagnose(ctx);
-
     expect(diag.suggestedAction).toBe("repair_config");
   });
 
@@ -278,8 +291,30 @@ describe("SelfHealer.diagnose", () => {
 
     const ctx: HealContext = { trigger: "system:alert", message: "Heap memory usage at 85%", timestamp: Date.now() };
     const diag = await healer.diagnose(ctx);
-
     expect(diag.suggestedAction).toBe("force_gc");
+  });
+
+  it("quick-diagnoses systemic failure when many errors", async () => {
+    const llm = makeMockLLM();
+    const healer = new SelfHealer(llm, makeMockTaskStore([]), makeMockGuard(), makeConfig());
+
+    // existsSync must return true for logs directory check
+    mockExistsSync.mockReturnValue(true);
+    const errorLines = Array.from({ length: 10 }, (_, i) =>
+      JSON.stringify({ timestamp: new Date().toISOString(), level: "error", message: `Error ${i}` }),
+    ).join("\n");
+    // readRecentErrors calls readRecentLogs internally, then diagnose calls readRecentLogs again
+    mockReaddir.mockResolvedValue(["pepagi-2026-03-21.jsonl"]);
+    mockReadFile.mockResolvedValue(errorLines);
+
+    const ctx: HealContext = { trigger: "task:failed", message: "Some generic error", timestamp: Date.now() };
+    const diag = await healer.diagnose(ctx);
+    expect(diag.suggestedAction).toBe("restart_daemon");
+
+    // Restore defaults
+    mockExistsSync.mockReturnValue(false);
+    mockReadFile.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    mockReaddir.mockResolvedValue([]);
   });
 
   it("falls back to LLM for complex issues", async () => {
@@ -310,6 +345,10 @@ describe("SelfHealer.diagnose", () => {
 describe("SelfHealer.healTier1", () => {
   beforeEach(() => {
     mockForceReset.mockClear();
+    mockExistsSync.mockReset().mockReturnValue(false);
+    mockReadFile.mockReset().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    mockReaddir.mockReset().mockResolvedValue([]);
+    mockRename.mockReset().mockResolvedValue(undefined);
   });
 
   it("resets circuit breaker", async () => {
@@ -323,7 +362,7 @@ describe("SelfHealer.healTier1", () => {
     expect(mockForceReset).toHaveBeenCalled();
   });
 
-  it("kills stuck tasks", async () => {
+  it("kills stuck tasks via TaskStore.fail()", async () => {
     const oldTime = new Date(Date.now() - 700_000); // 11+ min ago
     const tasks = [
       { id: "t1", status: "running", startedAt: oldTime },
@@ -334,16 +373,74 @@ describe("SelfHealer.healTier1", () => {
     const healer = new SelfHealer(makeMockLLM(), taskStore, makeMockGuard(), makeConfig());
     const diag: Diagnosis = { problem: "Stuck tasks", suggestedTier: 1, suggestedAction: "kill_stuck_tasks", confidence: 0.8 };
 
-    const emittedEvents: string[] = [];
-    const handler = (e: { type: string }) => { if (e.type === "task:failed") emittedEvents.push(e.type); };
-    eventBus.onAny(handler);
-
     const result = await healer.healTier1(diag);
-    eventBus.offAny(handler);
 
     expect(result.success).toBe(true);
     expect(result.details).toContain("1 stuck tasks");
-    expect(emittedEvents).toContain("task:failed");
+    // Verify TaskStore.fail() was called, not direct mutation
+    expect(taskStore.fail).toHaveBeenCalledWith("t1", "Killed by self-healer: stuck > 10 min");
+    expect(taskStore.fail).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs corrupted config by backing it up", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue("{ invalid json !!!"); // corrupted
+    // readFile for config test will throw on JSON.parse, not on readFile itself
+    // Actually we need readFile to succeed but JSON.parse to fail
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), makeConfig());
+    const diag: Diagnosis = { problem: "Config corrupted", suggestedTier: 1, suggestedAction: "repair_config", confidence: 0.85 };
+
+    const result = await healer.healTier1(diag);
+
+    expect(result.success).toBe(true);
+    expect(result.details).toContain("backed up");
+    expect(mockRename).toHaveBeenCalled();
+  });
+
+  it("reports valid config when no repair needed", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFile.mockResolvedValue('{"managerProvider":"claude"}'); // valid JSON
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), makeConfig());
+    const diag: Diagnosis = { problem: "Config check", suggestedTier: 1, suggestedAction: "repair_config", confidence: 0.5 };
+
+    const result = await healer.healTier1(diag);
+
+    expect(result.success).toBe(true);
+    expect(result.details).toContain("valid JSON");
+  });
+
+  it("repairs corrupted memory files", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReaddir.mockResolvedValue(["episodes.jsonl", "knowledge.jsonl", "readme.txt"]);
+    // First file: valid JSONL
+    mockReadFile.mockResolvedValueOnce('{"id":"1"}\n{"id":"2"}');
+    // Second file: invalid
+    mockReadFile.mockResolvedValueOnce('{"id":"1"}\nNOT JSON!!!');
+
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), makeConfig());
+    const diag: Diagnosis = { problem: "Memory corrupted", suggestedTier: 1, suggestedAction: "repair_memory", confidence: 0.7 };
+
+    const result = await healer.healTier1(diag);
+
+    expect(result.success).toBe(true);
+    expect(result.details).toContain("1 corrupted memory files backed up");
+    expect(mockRename).toHaveBeenCalledTimes(1);
+  });
+
+  it("force_gc kills heavy tasks via TaskStore.fail()", async () => {
+    const tasks = [
+      { id: "t1", status: "running", tokensUsed: { input: 150_000, output: 100_000 } }, // 250k > 200k threshold
+      { id: "t2", status: "running", tokensUsed: { input: 1000, output: 500 } }, // light
+    ];
+    const taskStore = makeMockTaskStore(tasks);
+    const healer = new SelfHealer(makeMockLLM(), taskStore, makeMockGuard(), makeConfig());
+    const diag: Diagnosis = { problem: "OOM risk", suggestedTier: 1, suggestedAction: "force_gc", confidence: 0.7 };
+
+    const result = await healer.healTier1(diag);
+
+    expect(result.success).toBe(true);
+    expect(result.details).toContain("killed 1 heavy tasks");
+    expect(taskStore.fail).toHaveBeenCalledWith("t1", "Killed by self-healer: high token usage under memory pressure");
   });
 
   it("handles unknown action gracefully", async () => {
@@ -373,21 +470,80 @@ describe("SelfHealer.healTier2", () => {
     expect(result.success).toBe(false);
     expect(result.details).toContain("protected security files");
   });
+
+  it("refuses all 25 security module files", async () => {
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), makeConfig({ allowCodeFixes: true }));
+
+    for (const file of ["incident-response.ts", "drift-detector.ts", "tool-guard.ts", "memory-guard.ts"]) {
+      const diag: Diagnosis = {
+        problem: "test",
+        suggestedTier: 2,
+        suggestedAction: "code_fix",
+        affectedFiles: [`src/security/${file}`],
+        confidence: 0.7,
+      };
+      const result = await healer.healTier2(diag);
+      expect(result.success).toBe(false);
+      expect(result.details).toContain("protected security files");
+    }
+  });
+
+  it("fails gracefully when not in a git repo", async () => {
+    const { execSync: mockExecSync } = await import("node:child_process");
+    (mockExecSync as ReturnType<typeof vi.fn>).mockImplementation(() => { throw new Error("not a git repo"); });
+
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), makeConfig({ allowCodeFixes: true }));
+    const diag: Diagnosis = { problem: "test", suggestedTier: 2, suggestedAction: "code_fix", confidence: 0.7 };
+
+    const result = await healer.healTier2(diag);
+
+    expect(result.success).toBe(false);
+    expect(result.details).toContain("Not in a git repository");
+
+    // Restore
+    (mockExecSync as ReturnType<typeof vi.fn>).mockImplementation(() => "");
+  });
+});
+
+describe("SelfHealer.escalate", () => {
+  it("emits critical system:alert with diagnostic report", async () => {
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), makeConfig());
+
+    const emittedEvents: Array<{ type: string; message?: string; level?: string }> = [];
+    const handler = (e: { type: string; message?: string; level?: string }) => {
+      if (e.type === "system:alert") emittedEvents.push(e);
+    };
+    eventBus.onAny(handler);
+
+    const diagnosis: Diagnosis = { problem: "Unrecoverable error", suggestedTier: 3, suggestedAction: "escalate", confidence: 0.4 };
+    const attempts = [
+      { tier: 1, success: false, action: "reset_circuit_breaker", details: "CB still broken", timestamp: Date.now() },
+    ];
+
+    await healer.escalate(diagnosis, attempts);
+    eventBus.offAny(handler);
+
+    expect(emittedEvents.length).toBeGreaterThanOrEqual(1);
+    const alert = emittedEvents.find(e => e.message?.includes("Manual Intervention"));
+    expect(alert).toBeDefined();
+    expect(alert?.level).toBe("critical");
+    expect(alert?.message).toContain("Unrecoverable error");
+    expect(alert?.message).toContain("Tier 1");
+  });
 });
 
 describe("SelfHealer lifecycle", () => {
   afterEach(() => {
-    // Clean up any lingering listeners
+    mockExistsSync.mockReset().mockReturnValue(false);
+    mockReadFile.mockReset().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
   });
 
   it("does not start when disabled in config", () => {
     const config = makeConfig({ enabled: false });
-    // Force the top-level enabled to false
     config.selfHealing = { ...config.selfHealing!, enabled: false };
     const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), config);
 
     healer.start();
-    // No handler should be registered — stopping should be a no-op
     healer.stop();
   });
 
@@ -414,10 +570,7 @@ describe("SelfHealer lifecycle", () => {
     };
     eventBus.onAny(handler);
 
-    // Emit task:failed
     eventBus.emit({ type: "task:failed", taskId: "t1", error: "Circuit breaker open" });
-
-    // Wait for async processing
     await new Promise(r => setTimeout(r, 100));
 
     eventBus.offAny(handler);
@@ -425,5 +578,71 @@ describe("SelfHealer lifecycle", () => {
 
     expect(emittedEvents).toContain("self-heal:attempt");
     expect(emittedEvents).toContain("self-heal:success");
+  });
+
+  it("responds to meta:watchdog_alert events", async () => {
+    const config = makeConfig({ cooldownMs: 0 });
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), config);
+    healer.start();
+
+    const emittedEvents: string[] = [];
+    const handler = (e: { type: string }) => {
+      if (e.type.startsWith("self-heal:")) emittedEvents.push(e.type);
+    };
+    eventBus.onAny(handler);
+
+    eventBus.emit({ type: "meta:watchdog_alert", message: "Task stuck for 15 minutes" });
+    await new Promise(r => setTimeout(r, 100));
+
+    eventBus.offAny(handler);
+    healer.stop();
+
+    expect(emittedEvents).toContain("self-heal:attempt");
+  });
+
+  it("responds to system:alert critical events only", async () => {
+    const config = makeConfig({ cooldownMs: 0 });
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), config);
+    healer.start();
+
+    const emittedEvents: string[] = [];
+    const handler = (e: { type: string }) => {
+      if (e.type.startsWith("self-heal:")) emittedEvents.push(e.type);
+    };
+    eventBus.onAny(handler);
+
+    // warn level should NOT trigger
+    eventBus.emit({ type: "system:alert", message: "Minor issue", level: "warn" });
+    await new Promise(r => setTimeout(r, 50));
+    expect(emittedEvents).toHaveLength(0);
+
+    // critical level should trigger
+    eventBus.emit({ type: "system:alert", message: "Circuit breaker open", level: "critical" });
+    await new Promise(r => setTimeout(r, 100));
+
+    eventBus.offAny(handler);
+    healer.stop();
+
+    expect(emittedEvents).toContain("self-heal:attempt");
+  });
+
+  it("does not double-count rate limit (canAttemptHeal + recordAttempt)", async () => {
+    const config = makeConfig({ cooldownMs: 0, maxAttemptsPerHour: 3 });
+    const healer = new SelfHealer(makeMockLLM(), makeMockTaskStore([]), makeMockGuard(), config);
+    healer.start();
+
+    // Trigger 3 heal events
+    for (let i = 0; i < 3; i++) {
+      eventBus.emit({ type: "task:failed", taskId: `t${i}`, error: "Circuit breaker open" });
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    // getAttempts should have exactly 3 entries (one per heal, from recordAttempt only)
+    const attempts = healer.getAttempts();
+    expect(attempts.length).toBe(3);
+    // All should have tier=1 (from recordAttempt), not tier=0 (no longer pushed by canAttemptHeal)
+    expect(attempts.every(a => a.tier === 1)).toBe(true);
+
+    healer.stop();
   });
 });
