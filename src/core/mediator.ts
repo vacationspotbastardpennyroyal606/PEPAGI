@@ -538,18 +538,20 @@ export class Mediator {
     // Build fallback chain: primary provider first, then others.
     // Each provider uses its OWN configured model (never mix provider+model from another).
     const primaryProvider = this.config.managerProvider ?? "claude";
-    const allProviders: Array<{ provider: string; model: string }> = [
-      { provider: "claude", model: this.config.agents.claude.model },
-      { provider: "gpt",    model: this.config.agents.gpt.model },
-      { provider: "gemini", model: this.config.agents.gemini.model },
-    ];
-    // Add enabled custom providers to the fallback chain
+    // Build fallback chain: custom providers first (user explicitly configured), then built-in.
+    // This matches agent-pool.ts fallback order — custom before disabled built-in.
+    const allProviders: Array<{ provider: string; model: string }> = [];
     const customProviders = this.config.customProviders ?? {};
     for (const [name, cpCfg] of Object.entries(customProviders)) {
       if (cpCfg.enabled && cpCfg.baseUrl) {
         allProviders.push({ provider: name, model: cpCfg.model });
       }
     }
+    allProviders.push(
+      { provider: "claude", model: this.config.agents.claude.model },
+      { provider: "gpt",    model: this.config.agents.gpt.model },
+      { provider: "gemini", model: this.config.agents.gemini.model },
+    );
     // Primary provider: use managerModel (config ensures it matches the provider)
     const primaryEntry = allProviders.find(p => p.provider === primaryProvider);
     if (primaryEntry && this.config.managerModel) {

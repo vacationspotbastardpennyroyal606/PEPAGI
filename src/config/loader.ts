@@ -322,16 +322,29 @@ export async function loadConfig(): Promise<PepagiConfig> {
   }
 
   if (!mgrIsUsable) {
-    // Find first enabled agent with an API key to use as manager
-    for (const candidate of builtinProviders) {
-      const agentCfg = config.agents[candidate];
-      const hasKey = !!(agentCfg.apiKey || (candidate === "claude" ? true : candidate === "gpt" ? process.env.OPENAI_API_KEY : process.env.GOOGLE_API_KEY));
-      const usable = candidate === "claude" ? agentCfg.enabled : agentCfg.enabled && hasKey;
-      if (usable) {
-        log(`managerProvider was "${mgrProvider}" (disabled/no key) — auto-switching to "${candidate}"`);
-        config.managerProvider = candidate;
-        config.managerModel = agentCfg.model;
+    let found = false;
+    // Try custom providers first (user explicitly configured these)
+    for (const [name, cp] of Object.entries(config.customProviders ?? {})) {
+      if (cp.enabled && cp.baseUrl) {
+        log(`managerProvider was "${mgrProvider}" (disabled/no key) — auto-switching to custom provider "${name}"`);
+        config.managerProvider = name;
+        config.managerModel = cp.model;
+        found = true;
         break;
+      }
+    }
+    // Then try built-in providers
+    if (!found) {
+      for (const candidate of builtinProviders) {
+        const agentCfg = config.agents[candidate];
+        const hasKey = !!(agentCfg.apiKey || (candidate === "claude" ? true : candidate === "gpt" ? process.env.OPENAI_API_KEY : process.env.GOOGLE_API_KEY));
+        const usable = candidate === "claude" ? agentCfg.enabled : agentCfg.enabled && hasKey;
+        if (usable) {
+          log(`managerProvider was "${mgrProvider}" (disabled/no key) — auto-switching to "${candidate}"`);
+          config.managerProvider = candidate;
+          config.managerModel = agentCfg.model;
+          break;
+        }
       }
     }
   }

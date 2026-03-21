@@ -25,6 +25,7 @@ vi.mock("node:fs", () => ({
 // receives a canned response without making real API calls.
 
 const mockQuickClaude = vi.fn();
+const mockQuickCall = vi.fn();
 const mockCall = vi.fn();
 
 vi.mock("../logger.js", () => ({
@@ -44,11 +45,14 @@ import type { AgentPool } from "../../agents/agent-pool.js";
 // ── Helpers ───────────────────────────────────────────────────
 
 function makeMockLLM(difficultyResponse = "medium"): LLMProvider {
-  mockQuickClaude.mockResolvedValue({ content: difficultyResponse, toolCalls: [], usage: { inputTokens: 10, outputTokens: 5 }, cost: 0.001, model: "claude-haiku-4-5", latencyMs: 100 });
-  mockCall.mockResolvedValue({ content: difficultyResponse, toolCalls: [], usage: { inputTokens: 10, outputTokens: 5 }, cost: 0.001, model: "claude-haiku-4-5", latencyMs: 100 });
+  const mockResponse = { content: difficultyResponse, toolCalls: [], usage: { inputTokens: 10, outputTokens: 5 }, cost: 0.001, model: "claude-haiku-4-5", latencyMs: 100 };
+  mockQuickClaude.mockResolvedValue(mockResponse);
+  mockQuickCall.mockResolvedValue(mockResponse);
+  mockCall.mockResolvedValue(mockResponse);
 
   return {
     quickClaude: mockQuickClaude,
+    quickCall: mockQuickCall,
     call: mockCall,
   } as unknown as LLMProvider;
 }
@@ -302,8 +306,8 @@ describe("DifficultyRouter.estimateDifficulty — heuristic path", () => {
   });
 
   it("falls back to heuristic result if LLM throws", async () => {
-    mockQuickClaude.mockRejectedValueOnce(new Error("LLM unavailable"));
-    const llm = { quickClaude: mockQuickClaude, call: mockCall } as unknown as LLMProvider;
+    mockQuickCall.mockRejectedValueOnce(new Error("LLM unavailable"));
+    const llm = { quickClaude: mockQuickClaude, quickCall: mockQuickCall, call: mockCall } as unknown as LLMProvider;
     const router = new DifficultyRouter(llm, makeMockPool());
 
     // Long enough to bypass heuristic short-circuit (not trivial/simple)

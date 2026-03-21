@@ -6,7 +6,6 @@ import type { DifficultyLevel, AgentProvider } from "../core/types.js";
 import type { LLMProvider } from "../agents/llm-provider.js";
 import type { AgentPool } from "../agents/agent-pool.js";
 import type { QualiaVector } from "../consciousness/phenomenal-state.js";
-import { CHEAP_CLAUDE_MODEL } from "../agents/pricing.js";
 import { Logger } from "./logger.js";
 import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -84,7 +83,7 @@ export class DifficultyRouter {
     }
 
     try {
-      const response = await this.llm.quickClaude(
+      const response = await this.llm.quickCall(
         `Classify task difficulty as one of: trivial, simple, medium, complex, unknown.
 trivial: Single-step, no creativity needed (e.g., "what is 2+2?")
 simple: A few steps, clear requirements (e.g., "write a hello world")
@@ -94,7 +93,6 @@ unknown: Unclear requirements or novel problem
 
 Respond with ONLY the difficulty word, nothing else.`,
         taskDescription.slice(0, 500),
-        CHEAP_CLAUDE_MODEL,
       );
 
       const diff = (["trivial", "simple", "medium", "complex", "unknown"].includes(response.content.trim().toLowerCase())

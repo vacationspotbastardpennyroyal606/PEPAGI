@@ -465,7 +465,13 @@ async function setup(): Promise<void> {
     if (cp.enabled) availableProviders.push({ slug, label: cp.displayName || slug, model: cp.model });
   }
 
-  if (availableProviders.length > 1) {
+  if (availableProviders.length === 0) {
+    header("VAROVÁNÍ — Žádný provider není nakonfigurovaný!");
+    warn("PEPAGI nemůže fungovat bez alespoň jednoho AI providera.");
+    warn("Vrať se a nakonfiguruj Claude, ChatGPT, Gemini, nebo custom providera.");
+    warn("Systém se uloží, ale daemon nebude schopen zpracovat žádný úkol.");
+    info("");
+  } else if (availableProviders.length > 1) {
     header("Hlavní Manager Provider");
     info("Který provider bude řídit systém (manager brain)?");
     info("");
