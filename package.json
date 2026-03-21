@@ -15,7 +15,7 @@
     "daemon": "tsx src/daemon.ts",
     "daemon:logs": "tail -f ~/.pepagi/logs/daemon.log",
     "dev": "tsx src/index.ts",
-    "build": "tsc && cp -r src/web/public dist/web/public 2>/dev/null || true",
+    "build": "tsc && node -e \"require('fs').cpSync('src/web/public','dist/web/public',{recursive:true})\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "tui": "tsx src/ui/index.ts"

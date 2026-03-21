@@ -41,14 +41,25 @@ function current(label: string, value: string) {
 
 // ─── Config type ─────────────────────────────────────────────
 
+interface CustomProviderEntry {
+  displayName: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  enabled: boolean;
+  inputCostPer1M: number;
+  outputCostPer1M: number;
+}
+
 interface SetupConfig {
-  managerProvider: "claude" | "gpt" | "gemini";
+  managerProvider: string;
   managerModel: string;
   agents: {
     claude: { enabled: boolean; apiKey: string; model: string; maxOutputTokens: number; temperature: number; maxAgenticTurns: number };
     gpt:    { enabled: boolean; apiKey: string; model: string; maxOutputTokens: number; temperature: number; maxAgenticTurns: number };
     gemini: { enabled: boolean; apiKey: string; model: string; maxOutputTokens: number; temperature: number; maxAgenticTurns: number };
   };
+  customProviders: Record<string, CustomProviderEntry>;
   profile: {
     userName: string;
     assistantName: string;
@@ -86,6 +97,7 @@ const DEFAULT_CONFIG: SetupConfig = {
     gpt:    { enabled: false, apiKey: "", model: "gpt-4o",              maxOutputTokens: 4096, temperature: 0.3, maxAgenticTurns: 0 },
     gemini: { enabled: false, apiKey: "", model: "gemini-2.0-flash",    maxOutputTokens: 4096, temperature: 0.3, maxAgenticTurns: 0 },
   },
+  customProviders: {},
   platforms: {
     telegram: { enabled: false, botToken: "", allowedUserIds: [], welcomeMessage: "Ahoj! Jsem PEPAGI. Napiš mi co chceš udělat." },
     whatsapp: { enabled: false, allowedNumbers: [], welcomeMessage: "Ahoj! Jsem PEPAGI. Napiš mi co chceš udělat." },
@@ -106,6 +118,7 @@ async function loadExistingConfig(): Promise<SetupConfig> {
   try {
     const raw = JSON.parse(await readFile(configPath, "utf8")) as Partial<SetupConfig>;
     // Deep merge: existing values take priority
+    const existingCustom = (raw.customProviders ?? {}) as Record<string, CustomProviderEntry>;
     return {
       ...DEFAULT_CONFIG,
       ...raw,
@@ -115,6 +128,7 @@ async function loadExistingConfig(): Promise<SetupConfig> {
         gpt:    { ...DEFAULT_CONFIG.agents.gpt,    ...(raw.agents?.gpt    ?? {}) },
         gemini: { ...DEFAULT_CONFIG.agents.gemini, ...(raw.agents?.gemini ?? {}) },
       },
+      customProviders: existingCustom,
       platforms: {
         telegram: { ...DEFAULT_CONFIG.platforms.telegram, ...(raw.platforms?.telegram ?? {}) },
         whatsapp: { ...DEFAULT_CONFIG.platforms.whatsapp, ...(raw.platforms?.whatsapp ?? {}) },
@@ -365,9 +379,110 @@ async function setup(): Promise<void> {
     }
   }
 
-  // ─── KROK 5: Telegram ──────────────────────────────────────
+  // ─── KROK 5: Custom OpenAI-Compatible Providers ────────────
 
-  header("KROK 5: Telegram Bot (volitelné)");
+  header("KROK 5: Custom OpenAI-Compatible Providers");
+  info("Deepinfra, Together, Kie.ai, OpenRouter, lokální servery...");
+  info("Jakýkoliv provider s OpenAI-kompatibilním /v1/chat/completions API.");
+  info("");
+
+  // Show existing custom providers
+  const customSlugs = Object.keys(config.customProviders);
+  if (customSlugs.length > 0) {
+    info("Existující custom provideři:");
+    for (const slug of customSlugs) {
+      const cp = config.customProviders[slug];
+      const st = cp.enabled && cp.apiKey ? chalk.green("aktivní") : chalk.yellow("neaktivní");
+      console.log(chalk.gray(`    ${slug}`) + ` — ${cp.displayName || slug} (${cp.model}) [${st}]`);
+    }
+    info("");
+  }
+
+  const changeCustom = await askYesNo("  Chceš přidat/upravit custom providera?", false);
+  if (changeCustom) {
+    let addMore = true;
+    while (addMore) {
+      info("");
+      const slug = await ask("  Slug (lowercase, a-z, 0-9, pomlčka, např. 'deepinfra'): ");
+      if (!slug || !/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
+        warn("Neplatný slug — musí být lowercase alfanumerický s pomlčkami.");
+      } else if (slug === "claude" || slug === "gpt" || slug === "gemini") {
+        warn("Nelze použít jméno built-in providera.");
+      } else {
+        const existing = config.customProviders[slug];
+        const displayName = await ask(`  Zobrazované jméno [${existing?.displayName || slug}]: `) || existing?.displayName || slug;
+        const baseUrl = await ask(`  Base URL (např. https://api.deepinfra.com/v1) [${existing?.baseUrl || ""}]: `) || existing?.baseUrl || "";
+        const apiKey = await ask(`  API klíč [${existing?.apiKey ? "***zachovat***" : ""}]: `) || existing?.apiKey || "";
+        const model = await ask(`  Model (např. meta-llama/Llama-3.3-70B-Instruct) [${existing?.model || ""}]: `) || existing?.model || "";
+
+        let inputCost = existing?.inputCostPer1M ?? 0;
+        let outputCost = existing?.outputCostPer1M ?? 0;
+        const setCosts = await askYesNo("  Nastavit ceny za 1M tokenů? (pro cost tracking)", false);
+        if (setCosts) {
+          const ic = await ask(`  Input cost per 1M tokenů [$${inputCost}]: `);
+          if (ic) inputCost = parseFloat(ic) || 0;
+          const oc = await ask(`  Output cost per 1M tokenů [$${outputCost}]: `);
+          if (oc) outputCost = parseFloat(oc) || 0;
+        }
+
+        config.customProviders[slug] = {
+          ...(existing ?? {}),
+          displayName,
+          baseUrl,
+          apiKey,
+          model,
+          enabled: !!(baseUrl && apiKey),
+          inputCostPer1M: inputCost,
+          outputCostPer1M: outputCost,
+        };
+        if (config.customProviders[slug].enabled) {
+          success(`${displayName} (${slug}) nastaven — model: ${model}`);
+        } else {
+          warn(`${displayName} (${slug}) uložen ale neaktivní (chybí URL nebo klíč).`);
+        }
+      }
+      addMore = await askYesNo("  Přidat dalšího custom providera?", false);
+    }
+  }
+
+  // ─── Manager provider selection ───────────────────────────
+
+  // Build list of all available providers
+  const availableProviders: Array<{ slug: string; label: string; model: string }> = [];
+  if (config.agents.claude.enabled) availableProviders.push({ slug: "claude", label: "Claude", model: config.agents.claude.model });
+  if (config.agents.gpt.enabled) availableProviders.push({ slug: "gpt", label: "ChatGPT", model: config.agents.gpt.model });
+  if (config.agents.gemini.enabled) availableProviders.push({ slug: "gemini", label: "Gemini", model: config.agents.gemini.model });
+  for (const [slug, cp] of Object.entries(config.customProviders)) {
+    if (cp.enabled) availableProviders.push({ slug, label: cp.displayName || slug, model: cp.model });
+  }
+
+  if (availableProviders.length > 1) {
+    header("Hlavní Manager Provider");
+    info("Který provider bude řídit systém (manager brain)?");
+    info("");
+    for (let i = 0; i < availableProviders.length; i++) {
+      const p = availableProviders[i];
+      const isCurrent = p.slug === config.managerProvider;
+      const tag = isCurrent ? chalk.green(" (aktuální)") : "";
+      console.log(`  ${chalk.cyan(`[${i + 1}]`)} ${p.label} (${p.model})${tag}`);
+    }
+    info("");
+    const choice = await ask(`  Volba [1-${availableProviders.length}, Enter = ponechat ${config.managerProvider}]: `);
+    const idx = parseInt(choice) - 1;
+    if (idx >= 0 && idx < availableProviders.length) {
+      const picked = availableProviders[idx];
+      config.managerProvider = picked.slug;
+      config.managerModel = picked.model;
+      success(`Manager: ${picked.label} (${picked.model})`);
+    }
+  } else if (availableProviders.length === 1) {
+    config.managerProvider = availableProviders[0].slug;
+    config.managerModel = availableProviders[0].model;
+  }
+
+  // ─── KROK 6: Telegram ──────────────────────────────────────
+
+  header("KROK 6: Telegram Bot (volitelné)");
 
   const tgStatus = config.platforms.telegram.enabled && config.platforms.telegram.botToken
     ? chalk.green("nastaven (token: " + config.platforms.telegram.botToken.slice(0, 8) + "...)")
@@ -399,9 +514,9 @@ async function setup(): Promise<void> {
     }
   }
 
-  // ─── KROK 6: WhatsApp ──────────────────────────────────────
+  // ─── KROK 7: WhatsApp ──────────────────────────────────────
 
-  header("KROK 6: WhatsApp (volitelné)");
+  header("KROK 7: WhatsApp (volitelné)");
 
   const waStatus = config.platforms.whatsapp.enabled
     ? chalk.green("aktivován")
@@ -436,29 +551,6 @@ async function setup(): Promise<void> {
         }
       }
     }
-  }
-
-  // ─── Určit hlavního providera (managerProvider) ────────────
-
-  // Only change managerProvider if the current one is disabled (respect user's choice)
-  const currentMgr = config.managerProvider;
-  const currentMgrEnabled = (config.agents as Record<string, { enabled?: boolean }>)[currentMgr]?.enabled ?? false;
-
-  if (!currentMgrEnabled) {
-    // Current manager provider was disabled — switch to first enabled one
-    if (config.agents.claude.enabled) {
-      config.managerProvider = "claude";
-      config.managerModel = config.agents.claude.model;
-    } else if (config.agents.gpt.enabled) {
-      config.managerProvider = "gpt";
-      config.managerModel = config.agents.gpt.model;
-    } else if (config.agents.gemini.enabled) {
-      config.managerProvider = "gemini";
-      config.managerModel = config.agents.gemini.model;
-    }
-  } else {
-    // Current manager is still enabled — just make sure model matches
-    config.managerModel = config.agents[currentMgr].model;
   }
 
   // ─── Uložit ────────────────────────────────────────────────
@@ -500,11 +592,22 @@ async function setup(): Promise<void> {
   const no = IS_WIN ? "[--]" : "✗";
   const arrow = IS_WIN ? "->" : "→";
   const dash = IS_WIN ? "--" : "—";
+  // Build custom providers summary lines
+  const customLines: string[] = [];
+  for (const [slug, cp] of Object.entries(config.customProviders)) {
+    if (cp.enabled) {
+      const isMgr = config.managerProvider === slug;
+      customLines.push(chalk.green(`  ${ok} ${cp.displayName || slug} `) + chalk.gray(`(${cp.model})`) + chalk.gray(isMgr ? ` ${dash} manager` : ` ${dash} custom`));
+    } else {
+      customLines.push(chalk.gray(`  ${no} ${cp.displayName || slug} (neaktivni)`));
+    }
+  }
+
   console.log(`
   ${chalk.white.bold("Aktivni providers:")}
-  ${config.agents.claude.enabled ? chalk.green(`  ${ok} Claude  `) + chalk.gray(config.profile.subscriptionMode ? "(OAuth predplatne)" : "(API klic)") + chalk.gray(` ${dash} primarni`) : chalk.gray(`  ${no} Claude  (vypnut)`)}
-  ${config.agents.gpt.enabled    ? chalk.green(`  ${ok} ChatGPT `) + chalk.gray(config.profile.gptSubscriptionMode ? "(OAuth Codex CLI)"   : "(API klic)") + chalk.gray(` ${dash} zaloha`)  : chalk.gray(`  ${no} ChatGPT (vypnut)`)}
-  ${config.agents.gemini.enabled ? chalk.green(`  ${ok} Gemini  `) + chalk.gray("(API klic)") + chalk.gray(` ${dash} zaloha`) : chalk.gray(`  ${no} Gemini  (vypnut)`)}
+  ${config.agents.claude.enabled ? chalk.green(`  ${ok} Claude  `) + chalk.gray(config.profile.subscriptionMode ? "(OAuth predplatne)" : "(API klic)") + chalk.gray(config.managerProvider === "claude" ? ` ${dash} manager` : ` ${dash} zaloha`) : chalk.gray(`  ${no} Claude  (vypnut)`)}
+  ${config.agents.gpt.enabled    ? chalk.green(`  ${ok} ChatGPT `) + chalk.gray(config.profile.gptSubscriptionMode ? "(OAuth Codex CLI)"   : "(API klic)") + chalk.gray(config.managerProvider === "gpt" ? ` ${dash} manager` : ` ${dash} zaloha`)  : chalk.gray(`  ${no} ChatGPT (vypnut)`)}
+  ${config.agents.gemini.enabled ? chalk.green(`  ${ok} Gemini  `) + chalk.gray("(API klic)") + chalk.gray(config.managerProvider === "gemini" ? ` ${dash} manager` : ` ${dash} zaloha`) : chalk.gray(`  ${no} Gemini  (vypnut)`)}${customLines.length > 0 ? "\n" + customLines.join("\n") : ""}
 
   ${chalk.white.bold("Prepinani pri rate limitu:")}
   ${chalk.gray(`  Pokud Claude narazi na limit ${arrow} automaticky prepne na ChatGPT / Gemini.`)}
