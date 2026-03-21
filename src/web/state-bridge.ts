@@ -80,8 +80,14 @@ export class StateBridge {
   private memStatsTimer: ReturnType<typeof setInterval> | null = null;
   private prevQualia: Record<string, number> = {};
 
-  constructor() {
+  constructor(platformConfig?: { telegram?: { enabled: boolean }; whatsapp?: { enabled: boolean }; discord?: { enabled: boolean } }) {
     this.state = createInitialState();
+    // Sync platform enabled states from config so dashboard shows actual status
+    if (platformConfig) {
+      if (platformConfig.telegram?.enabled) this.state.platforms.telegram.enabled = true;
+      if (platformConfig.whatsapp?.enabled) this.state.platforms.whatsapp.enabled = true;
+      if (platformConfig.discord?.enabled)  this.state.platforms.discord.enabled = true;
+    }
   }
 
   /** Start listening to eventBus and refreshing memory stats. */

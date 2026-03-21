@@ -232,7 +232,7 @@ async function main(): Promise<void> {
   // Start Web Dashboard (browser UI on localhost:3100)
   let webDashboard: WebDashboardServer | null = null;
   if (config.web?.enabled !== false) {
-    webDashboard = new WebDashboardServer(taskStore, mediator, { port: config.web?.port ?? 3100, host: config.web?.host, authToken: config.web?.authToken, pool, llm });
+    webDashboard = new WebDashboardServer(taskStore, mediator, { port: config.web?.port ?? 3100, host: config.web?.host, authToken: config.web?.authToken, pool, llm, platforms: config.platforms });
     try {
       await webDashboard.start();
       logger.info("Web dashboard started", { port: config.web?.port ?? 3100 });

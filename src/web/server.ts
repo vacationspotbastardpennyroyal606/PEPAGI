@@ -64,7 +64,7 @@ export class WebDashboardServer {
   constructor(
     private readonly taskStore: TaskStore,
     private readonly mediator: Mediator,
-    opts?: { port?: number; host?: string; authToken?: string; pool?: import("../agents/agent-pool.js").AgentPool; llm?: import("../agents/llm-provider.js").LLMProvider },
+    opts?: { port?: number; host?: string; authToken?: string; pool?: import("../agents/agent-pool.js").AgentPool; llm?: import("../agents/llm-provider.js").LLMProvider; platforms?: { telegram?: { enabled: boolean }; whatsapp?: { enabled: boolean }; discord?: { enabled: boolean } } },
   ) {
     this.pool = opts?.pool ?? null;
     this.llm = opts?.llm ?? null;
@@ -72,7 +72,7 @@ export class WebDashboardServer {
     // PEPAGI_HOST env var overrides config — useful for Docker without config changes
     this.host = process.env.PEPAGI_HOST ?? opts?.host ?? "127.0.0.1";
     this.authToken = opts?.authToken ?? "";
-    this.bridge = new StateBridge();
+    this.bridge = new StateBridge(opts?.platforms);
     this.publicDir = resolvePublicDir();
     this.startTime = Date.now();
   }

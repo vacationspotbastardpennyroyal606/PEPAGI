@@ -75,7 +75,8 @@ export class DiscordPlatform {
   // ─── Access control ───────────────────────────────────────────
 
   private isAllowedUser(userId: string): boolean {
-    if (this.config.allowedUserIds.length === 0) return true;
+    // SEC-31: deny ALL when no user IDs configured — prevents open-access bots
+    if (this.config.allowedUserIds.length === 0) return false;
     return this.config.allowedUserIds.includes(userId);
   }
 

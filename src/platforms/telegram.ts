@@ -60,7 +60,8 @@ export class TelegramPlatform {
   }
 
   private isAllowed(userId: number): boolean {
-    if (this.allowedUserIds.length === 0) return true;
+    // SEC-31: deny ALL when no user IDs configured — prevents open-access bots
+    if (this.allowedUserIds.length === 0) return false;
     return this.allowedUserIds.includes(userId);
   }
 
@@ -260,7 +261,7 @@ export class TelegramPlatform {
     bot.command("start", async (ctx) => {
       const userId = ctx.from.id;
       if (!this.isAllowed(userId)) {
-        await ctx.reply("⛔ Přístup odepřen.");
+        await ctx.reply("⛔ Přístup odepřen. Požádej správce o přidání tvého ID: " + userId);
         return;
       }
       this.conversations.delete(userId);
@@ -694,9 +695,9 @@ export class TelegramPlatform {
   }
 
   async start(): Promise<void> {
-    // AUDIT: warn if allowedUserIds is empty — bot will accept messages from anyone
+    // SEC-31: warn if allowedUserIds is empty — bot will deny ALL messages until configured
     if (this.allowedUserIds.length === 0) {
-      logger.warn("Telegram allowedUserIds is empty — bot accepts messages from ALL users");
+      logger.warn("SEC-31: Telegram allowedUserIds is empty — bot will DENY all messages. Add user IDs via setup or config.json");
     }
     logger.info("Starting Telegram bot...");
     // Timeout: Telegraf's launch() can hang if a previous long-poll connection

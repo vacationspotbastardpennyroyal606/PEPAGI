@@ -268,7 +268,7 @@ describe("TelegramPlatform — allowed user check", () => {
     registeredEvents.clear();
   });
 
-  it("allowedUserIds=[] allows all users (empty list = no restriction)", async () => {
+  it("allowedUserIds=[] denies all users (SEC-31: empty list = deny all)", async () => {
     makeTelegramPlatform([]);
     const handler = registeredCommands.get("start");
     expect(handler).toBeDefined();
@@ -276,8 +276,8 @@ describe("TelegramPlatform — allowed user check", () => {
     const ctx = makeCtx(99999);
     await handler!(ctx);
 
-    // Should reply with welcome message, not "access denied"
-    expect(mockBotReply).toHaveBeenCalledWith(expect.stringContaining("Welcome to PEPAGI!"));
+    // Should reply with access denied, not welcome message
+    expect(mockBotReply).toHaveBeenCalledWith(expect.stringContaining("⛔"));
   });
 
   it("allowedUserIds=[123] allows user 123", async () => {
@@ -370,7 +370,7 @@ describe("TelegramPlatform — message processing", () => {
   it("text message creates a task in TaskStore and calls mediator", async () => {
     const taskStore = makeMockTaskStore();
     const mediator = makeMockMediator();
-    new TelegramPlatform("token", [], mediator, taskStore, makeMockLLM(), "Hi!");
+    new TelegramPlatform("token", [7], mediator, taskStore, makeMockLLM(), "Hi!");
 
     const handler = registeredEvents.get("message:text");
     expect(handler).toBeDefined();
@@ -416,7 +416,7 @@ describe("TelegramPlatform — message processing", () => {
   });
 
   it("ConversationMemory.addTurn() is called after mediator response", async () => {
-    new TelegramPlatform("token", [], makeMockMediator(), makeMockTaskStore(), makeMockLLM(), "Hi!");
+    new TelegramPlatform("token", [7], makeMockMediator(), makeMockTaskStore(), makeMockLLM(), "Hi!");
 
     const handler = registeredEvents.get("message:text");
     expect(handler).toBeDefined();
@@ -455,7 +455,7 @@ describe("TelegramPlatform — long response handling", () => {
       confidence: 0.9,
     });
 
-    new TelegramPlatform("token", [], mediator, makeMockTaskStore(), makeMockLLM(), "Hi!");
+    new TelegramPlatform("token", [7], mediator, makeMockTaskStore(), makeMockLLM(), "Hi!");
 
     const handler = registeredEvents.get("message:text");
     expect(handler).toBeDefined();
@@ -490,7 +490,7 @@ describe("TelegramPlatform — long response handling", () => {
       confidence: 0.9,
     });
 
-    new TelegramPlatform("token", [], mediator, makeMockTaskStore(), makeMockLLM(), "Hi!");
+    new TelegramPlatform("token", [7], mediator, makeMockTaskStore(), makeMockLLM(), "Hi!");
 
     const handler = registeredEvents.get("message:text");
     expect(handler).toBeDefined();
