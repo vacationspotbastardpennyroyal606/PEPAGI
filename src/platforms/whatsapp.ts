@@ -83,8 +83,10 @@ export class WhatsAppPlatform {
     let qrcodeTerminal: { generate: (qr: string, opts: unknown) => void };
 
     try {
-      WWebJS = await import("whatsapp-web.js") as typeof WWebJS;
-      qrcodeTerminal = await import("qrcode-terminal") as typeof qrcodeTerminal;
+      const wwMod = await import("whatsapp-web.js");
+      WWebJS = (wwMod as Record<string, unknown>).default ? (wwMod as Record<string, unknown>).default as typeof WWebJS : wwMod as typeof WWebJS;
+      const qrMod = await import("qrcode-terminal");
+      qrcodeTerminal = (qrMod as Record<string, unknown>).default ? (qrMod as Record<string, unknown>).default as typeof qrcodeTerminal : qrMod as typeof qrcodeTerminal;
     } catch {
       throw new Error(
         "WhatsApp dependencies missing. Run: npm install whatsapp-web.js qrcode-terminal"

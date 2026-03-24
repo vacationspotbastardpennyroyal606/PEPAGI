@@ -155,7 +155,7 @@ graph TD
 ### Mac / Linux
 
 ```bash
-git clone https://github.com/AiTaskForce/pepagi.git
+git clone https://github.com/Promptlab37/PEPAGI.git
 cd pepagi
 ./install.sh
 ```
@@ -174,7 +174,7 @@ The installer will:
 ### Manual Installation
 
 ```bash
-git clone https://github.com/AiTaskForce/pepagi.git
+git clone https://github.com/Promptlab37/PEPAGI.git
 cd pepagi
 npm install
 npm run setup    # Interactive config wizard

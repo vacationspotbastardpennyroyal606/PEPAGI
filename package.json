@@ -11,6 +11,7 @@
   },
   "scripts": {
     "start": "tsx src/cli.ts",
+    "cli": "tsx src/cli.ts",
     "setup": "tsx src/setup.ts",
     "daemon": "tsx src/daemon.ts",
     "daemon:logs": "tail -f ~/.pepagi/logs/daemon.log",
