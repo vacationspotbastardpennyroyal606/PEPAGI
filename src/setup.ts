@@ -242,13 +242,13 @@ async function setup(): Promise<void> {
       info("Otevírám prohlížeč pro přihlášení k Anthropic...");
       info("Po přihlášení zkopíruj autorizační kód ze stránky.");
       try {
-        const tokens = await anthropicOAuthLogin(ask);
+        await anthropicOAuthLogin(ask);
         config.profile.subscriptionMode = true;
         config.agents.claude.enabled = true;
-        config.agents.claude.apiKey = tokens.accessToken;
+        config.agents.claude.apiKey = "";  // OAuth token is in ~/.pepagi/anthropic-oauth.json, NOT here
         config.managerProvider = "claude";
         config.managerModel = config.agents.claude.model;
-        success("Claude: OAuth přihlášení úspěšné! Token uložen.");
+        success("Claude: OAuth přihlášení úspěšné! Token uložen do ~/.pepagi/anthropic-oauth.json");
       } catch (err) {
         warn(`OAuth přihlášení selhalo: ${err instanceof Error ? err.message : String(err)}`);
         warn("Můžeš to zkusit znovu později přes: npm run setup");
