@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import chalk from "chalk";
 import { PEPAGI_DATA_DIR } from "./config/loader.js";
+import { openaiOAuthLogin, anthropicOAuthLogin } from "./auth/oauth-flow.js";
 
 const IS_WIN = platform() === "win32";
 
@@ -238,12 +239,26 @@ async function setup(): Promise<void> {
     const choice = await ask("  Volba [1/2]: ");
 
     if (choice === "1" || !choice) {
-      config.profile.subscriptionMode = true;
-      config.agents.claude.enabled = true;
-      config.agents.claude.apiKey = "";
-      config.managerProvider = "claude";
-      config.managerModel = config.agents.claude.model;
-      success("Claude: OAuth předplatné (claude.ai)");
+      info("Otevírám prohlížeč pro přihlášení k Anthropic...");
+      info("Po přihlášení zkopíruj autorizační kód ze stránky.");
+      try {
+        const tokens = await anthropicOAuthLogin(ask);
+        config.profile.subscriptionMode = true;
+        config.agents.claude.enabled = true;
+        config.agents.claude.apiKey = tokens.accessToken;
+        config.managerProvider = "claude";
+        config.managerModel = config.agents.claude.model;
+        success("Claude: OAuth přihlášení úspěšné! Token uložen.");
+      } catch (err) {
+        warn(`OAuth přihlášení selhalo: ${err instanceof Error ? err.message : String(err)}`);
+        warn("Můžeš to zkusit znovu později přes: npm run setup");
+        // Keep claude enabled but without key — will use CLI fallback if available
+        config.profile.subscriptionMode = true;
+        config.agents.claude.enabled = true;
+        config.agents.claude.apiKey = "";
+        config.managerProvider = "claude";
+        config.managerModel = config.agents.claude.model;
+      }
 
     } else if (choice === "2") {
       const key = await ask("  API klíč (sk-ant-...): ");
@@ -307,21 +322,19 @@ async function setup(): Promise<void> {
     const choice = await ask("  Volba [1/2/3]: ");
 
     if (choice === "1") {
-      config.profile.gptSubscriptionMode = true;
-      config.agents.gpt.enabled = true;
-      config.agents.gpt.apiKey = "";
-      success("ChatGPT: OAuth předplatné přes Codex CLI");
-      info("Nezapomeň spustit: codex login   (jednorázové přihlášení)");
-
-      // Check if codex is installed
+      info("Otevírám prohlížeč pro přihlášení k OpenAI...");
+      info("Přihlaš se svým ChatGPT účtem (Plus/Pro).");
       try {
-        const { execSync } = await import("node:child_process");
-        execSync("codex --version", { stdio: "pipe" });
-        success("Codex CLI nalezen");
-      } catch {
-        warn("Codex CLI není nainstalován. Po setupu spusť:");
-        warn("  npm install -g @openai/codex");
-        warn("  codex login");
+        const tokens = await openaiOAuthLogin();
+        config.profile.gptSubscriptionMode = true;
+        config.agents.gpt.enabled = true;
+        config.agents.gpt.apiKey = "";
+        success("ChatGPT: OAuth přihlášení úspěšné! Token uložen do ~/.codex/auth.json");
+      } catch (err) {
+        warn(`OAuth přihlášení selhalo: ${err instanceof Error ? err.message : String(err)}`);
+        warn("Můžeš to zkusit znovu později přes: npm run setup");
+        config.profile.gptSubscriptionMode = false;
+        config.agents.gpt.enabled = false;
       }
 
     } else if (choice === "2") {

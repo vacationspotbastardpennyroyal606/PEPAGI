@@ -585,9 +585,22 @@ async function callClaudeAgenticAPI(opts: LLMCallOptions, apiKey: string): Promi
 // ─── Claude routing ───────────────────────────────────────────
 
 async function callClaude(opts: LLMCallOptions): Promise<LLMResponse> {
-  const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY;
+  let apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY;
 
-  // With API key → REST API (fast, reliable, supports tool_use)
+  // If no API key, try stored Anthropic OAuth token (~/.pepagi/anthropic-oauth.json)
+  if (!apiKey) {
+    try {
+      const { readAnthropicOAuthToken } = await import("../auth/oauth-flow.js");
+      apiKey = await readAnthropicOAuthToken() ?? undefined;
+      if (apiKey) {
+        logger.info("Claude: using stored Anthropic OAuth token", { taskId: opts.taskId });
+      }
+    } catch {
+      // oauth-flow module not available — skip
+    }
+  }
+
+  // With API key or OAuth token → REST API (fast, reliable, supports tool_use)
   if (apiKey) {
     if (opts.agenticMode) {
       logger.info("Claude agentic → REST API tool_use loop", { taskId: opts.taskId, model: opts.model });
@@ -596,9 +609,7 @@ async function callClaude(opts: LLMCallOptions): Promise<LLMResponse> {
     return callClaudeAPI(opts, apiKey);
   }
 
-  // No API key → use `claude` CLI in --print mode (uses CLI's own OAuth)
-  // The CLI handles authentication internally via macOS Keychain / OAuth.
-  // The Anthropic REST API does NOT accept OAuth tokens directly.
+  // No API key, no OAuth token → use `claude` CLI in --print mode (uses CLI's own OAuth)
   logger.debug("Claude → CLI --print mode (no API key, using CLI OAuth)", { taskId: opts.taskId, agentic: !!opts.agenticMode });
   return callClaudeCLI(opts);
 }
